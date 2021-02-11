@@ -1,0 +1,16 @@
+[Unit]
+Description=Project Lightspeed chat service
+After=network-online.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/lightspeed/lightspeed-chat
+TimeoutStartSec=0
+Environment=GOOGLE_APPLICATION_CREDENTIALS=GOOGLE_CREDENTIALS.json
+ExecStart=/opt/lightspeed/lightspeed-chat/lightspeed-chat -p /opt/lightspeed/lightspeed-chat/lightspeed-chat-google-translate-plugin -c /opt/lightspeed/lightspeed-chat
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=network-online.target

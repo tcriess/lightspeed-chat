@@ -1,0 +1,107 @@
+syntax = "proto3";
+package proto;
+
+option go_package = "github.com/tcriess/lightspeed-chat/proto";
+
+// requires:
+// go get -u google.golang.org/protobuf/cmd/protoc-gen-go
+// go get -u google.golang.org/grpc/cmd/protoc-gen-go-grpc
+// compile via
+// protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/message.proto
+// in the parent directory
+
+message GetSpecRequest {
+}
+
+message GetSpecResponse {
+    bytes data = 1;
+}
+
+message ConfigureRequest {
+    bytes data = 1;
+}
+
+message ConfigureResponse {
+    string cron_spec = 1;
+    string events_filter = 2;
+}
+
+message CronRequest {
+}
+
+message CronResponse {
+    repeated Event events = 1;
+}
+
+message EventMessage {
+    string id = 1;
+    int64 timestamp = 2;
+    string nick = 3;
+    string text = 4;
+    string language = 5;
+    string filter = 6;
+}
+
+message EventTranslation {
+    string source_id = 1;
+    int64 timestamp = 2;
+    string language = 3;
+    string text = 4;
+    string filter = 5;
+}
+
+message EventCommand {
+    string command = 1;
+    string nick = 2;
+}
+
+message EventUserLogin {
+    string id = 1;
+    string nick = 2;
+    map<string, string> tags = 3;
+    map<string, int64> int_tags = 4;
+    int64 last_online = 5;
+}
+
+message Event {
+    oneof event_type {
+        EventMessage message = 1;
+        EventTranslation translation = 2;
+        EventCommand command = 3;
+        EventUserLogin user_login = 4;
+    };
+}
+
+message HandleEventsRequest {
+    repeated Event events = 1;
+}
+
+message HandleEventsResponse {
+    repeated Event events = 1;
+}
+
+message InitEmitEventsRequest {
+    uint32 emit_events_server = 1;
+}
+
+message InitEmitEventsResponse {
+}
+
+service EventHandler {
+    rpc GetSpec (GetSpecRequest) returns (GetSpecResponse);
+    rpc Configure (ConfigureRequest) returns (ConfigureResponse);
+    rpc Cron (CronRequest) returns (CronResponse);
+    rpc HandleEvents (HandleEventsRequest) returns (HandleEventsResponse);
+    rpc InitEmitEvents (InitEmitEventsRequest) returns (InitEmitEventsResponse);
+}
+
+message EmitEventsRequest {
+    repeated Event events = 1;
+}
+
+message EmitEventsResponse {
+}
+
+service EmitEventsHelper {
+    rpc EmitEvents (EmitEventsRequest) returns (EmitEventsResponse);
+}
