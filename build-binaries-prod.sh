@@ -10,6 +10,6 @@ go mod vendor
 
 for bin in "${BINARIES[@]}"; do
     echo "Building $bin"
-    pkger -o ${bin}
+    # pkger -o ${bin}
     (cd "./${bin}/" && go build .)
 done
