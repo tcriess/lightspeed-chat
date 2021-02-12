@@ -35,8 +35,7 @@ type cacheKey struct {
 	Text           string
 }
 
-// Here is a real implementation of KV that writes to a local file with
-// the key name and the contents are the value of the key.
+// Here is a real implementation of the plugin interface
 type EventHandler struct{}
 
 func (m *EventHandler) HandleEvents(events []types.Event) ([]types.Event, error) {
@@ -85,50 +84,6 @@ func (m *EventHandler) HandleEvents(events []types.Event) ([]types.Event, error)
 	}
 	return outEvents, nil
 }
-
-/*
-func (m *EventHandler) HandleMessage(message types.ChatMessage, bc plugins.BroadcastHelper) error {
-	log.Printf("in HandleMessage, about to translate %v", message)
-	log.Printf("project id: %v", projectId)
-	log.Printf("languages: %v", languages)
-	if strings.HasPrefix(message.Message, "/") {
-		return nil
-	}
-	translations := make([]types.TranslationMessage, 0)
-	for _, language := range languages {
-		isoLang := language[0:2]
-		res, err := translation([]string{message.Message}, language)
-		if err != nil {
-			return err
-		}
-		if len(res) == 0 {
-			log.Println("no translation")
-			return nil
-		}
-		if res[0] != "" {
-			f := message.Filter
-			if f != "" {
-				f = fmt.Sprintf(`( %s ) && Client.Language startsWith %s`, f, strconv.Quote(isoLang))
-			} else {
-				f = fmt.Sprintf(`Client.Language startsWith %s`, strconv.Quote(isoLang))
-			}
-			trans := types.TranslationMessage{
-				SourceId:  message.Id,
-				Timestamp: message.Timestamp,
-				Language:  isoLang,
-				Message:   res[0],
-				Filter:    f,
-			}
-			translations = append(translations, trans)
-		}
-	}
-	err := bc.Broadcast(nil, translations, false, nil)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-*/
 
 func (m *EventHandler) GetSpec() (*hcldec.BlockSpec, error) {
 	spec := hcldec.BlockSpec{
@@ -225,90 +180,6 @@ func (m *EventHandler) InitEmitEvents(eh plugins.EmitEventsHelper) error {
 
 	return nil
 }
-
-/*
-func (m *EventHandler) Cron(bc plugins.BroadcastHelper) error {
-	msg, err := types.NewChatMessage(translatorNick, time.Now(), translatorText, translatorTextLanguage)
-	if err != nil {
-		return err
-	}
-	err = m.HandleMessage(*msg, bc)
-	if err != nil {
-		return err
-	}
-	return bc.Broadcast([]types.ChatMessage{*msg}, nil, false, nil)
-}
-*/
-
-/*
-func (m *EventHandler) EventStream(outEvents chan<- types.Event) (<-chan types.Event, error) {
-	inEvents := make(<-chan types.Event)
-	go func() {
-		log.Println("start event stream loop")
-		for {
-			event, ok := <-inEvents
-			if !ok {
-				return
-			}
-			// do stuff with the event
-			log.Printf("received event: %+v", event)
-
-			respEvent := &types.EventTranslation{
-				EventBase:          &types.EventBase{EventType: types.EventTypeTranslation},
-				TranslationMessage: &types.TranslationMessage{
-					SourceId:  "TEST",
-					Timestamp: time.Now(),
-					Language:  "de",
-					Message:   "TEST",
-					Filter:    "",
-				},
-			}
-			outEvents <- respEvent
-		}
-	}()
-	return inEvents, nil
-}
-*/
-
-/*
-func (m *EventHandler) InitEventStream(eh plugins.EventStreamHelper) error {
-	eventsToMain := make(chan<- types.Event)
-	eventsFromMain, err := eh.EventStream(eventsToMain)
-	if err != nil {
-		return err
-	}
-	go func() {
-		for {
-			event, ok := <-eventsFromMain
-			if !ok {
-				return
-			}
-			log.Printf("got event from main: %+v", event)
-		}
-	}()
-	go func() {
-		defer close(eventsToMain)
-		for {
-			<-time.After(10 * time.Second)
-			event := &types.EventMessage{
-				EventBase:   &types.EventBase{EventType: types.EventTypeMessage},
-				ChatMessage: &types.ChatMessage{
-					Id:        "TEST",
-					Nick:      "NICK",
-					Timestamp: time.Now(),
-					Message:   "MSG",
-					Language:  "",
-					Filter:    "",
-				},
-			}
-			log.Printf("about to send event to main: %v", event)
-			eventsToMain <- event
-			log.Printf("done sending event to main")
-		}
-	}()
-	return nil
-}
-*/
 
 func translation(srcText []string, language string) ([]string, error) {
 	log.Printf("in translation srcText: %+v language: %s", srcText, language)
