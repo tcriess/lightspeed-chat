@@ -1,6 +1,6 @@
 plugin "google-translate" {
   config {
-    project_id = "lightspeed-303219"
+    project_id = ""
     languages = [
       "de-DE",
       "es-ES",
