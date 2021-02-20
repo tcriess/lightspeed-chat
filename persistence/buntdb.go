@@ -61,7 +61,7 @@ func (p *BuntDBPersist) GetUser(user *types.User) error {
 		return fmt.Errorf("no user id")
 	}
 	err := p.db.View(func(tx *buntdb.Tx) error {
-		u, err := tx.Get(user.Id)
+		u, err := tx.Get("user:" + user.Id)
 		if err != nil {
 			return err
 		}
@@ -93,7 +93,7 @@ func (p *BuntDBPersist) GetRoom(room *types.Room) error {
 		return fmt.Errorf("no user id")
 	}
 	err := p.db.View(func(tx *buntdb.Tx) error {
-		u, err := tx.Get(room.Id)
+		u, err := tx.Get("room:" + room.Id)
 		if err != nil {
 			return err
 		}

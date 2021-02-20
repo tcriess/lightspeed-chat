@@ -145,12 +145,21 @@ func main() {
 	defer plugin.CleanupClients()
 
 	// TODO: fetch from DB
-	room := &types.Room{
+	room := types.Room{
 		Id:    "default",
 		Owner: &types.User{},
 	}
+	if persister != nil {
+		err = persister.GetRoom(&room)
+		if err != nil {
+			err = persister.StoreRoom(room)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 
-	hub := ws.NewHub(room, globalConfig, persister, globalPlugins)
+	hub := ws.NewHub(&room, globalConfig, persister, globalPlugins)
 	hubs["default"] = hub
 	go hub.Run()
 	setupRoutes()

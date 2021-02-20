@@ -73,8 +73,6 @@ func main() {
 			HandshakeConfig: plugins.Handshake,
 			Plugins:         plugins.PluginMap,
 			Cmd:             exec.Command("sh", "-c", mhp),
-			//AllowedProtocols: []plugin.Protocol{
-			//	plugin.ProtocolNetRPC, plugin.ProtocolGRPC},
 			AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
 			Managed:          true,
 		})
@@ -82,15 +80,15 @@ func main() {
 		// Connect via RPC
 		rpcClient, err := pluginClient.Client()
 		if err != nil {
-			fmt.Println("Error:", err.Error())
-			os.Exit(1)
+			globals.AppLogger.Error("could not create rpc client", "error", err)
+			panic("could not create rpc client")
 		}
 
 		// Request the plugin
 		raw, err := rpcClient.Dispense("eventhandler")
 		if err != nil {
-			fmt.Println("Error:", err.Error())
-			os.Exit(1)
+			globals.AppLogger.Error("could not dispense rpc client", "error", err)
+			panic("could not dispense rpc client")
 		}
 
 		eventHandler := raw.(plugins.EventHandler)
@@ -143,6 +141,13 @@ func main() {
 		}
 		switch pflag.Arg(1) {
 		case "room":
+			room := types.Room{Id: pflag.Arg(2)}
+			err := persister.GetRoom(&room)
+			if err != nil {
+				globals.AppLogger.Error("could not get room", "error", err)
+				return
+			}
+			globals.AppLogger.Info("room", "room", room)
 
 		case "user":
 			user := types.User{Id: pflag.Arg(2)}
@@ -165,6 +170,30 @@ func main() {
 				return
 			}
 			globals.AppLogger.Info("got room", "room", room)
+			if room.Id == "" {
+				globals.AppLogger.Error("no room id")
+				return
+			}
+			err = persister.GetRoom(&room)
+			if err != nil {
+				globals.AppLogger.Info("room does not exist, creating")
+			}
+			if room.Owner.Id == "" {
+				globals.AppLogger.Warn("no ownder set")
+			}
+			if room.Owner.Id != "" && room.Owner.Nick == "" {
+				globals.AppLogger.Info("user id set, but no nick, try to fetch user from db")
+				err = persister.GetUser(room.Owner)
+				if err != nil {
+					globals.AppLogger.Error("could not get owner", "error", err)
+					return
+				}
+			}
+			err = persister.StoreRoom(room)
+			if err != nil {
+				globals.AppLogger.Error("could not store room", "error", err)
+				return
+			}
 
 		case "user":
 			// expect a json representation of a types.User in stdin
