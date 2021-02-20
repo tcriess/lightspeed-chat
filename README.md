@@ -129,7 +129,7 @@ This may change in the future.
 
 ### History
 
-The immediate chat history is kept in memory, the length of the ring buffer for the chat messages and the translations is provided in the `history`-block, the attributes are called `history_size` and `translation_history_size`, respectively.
+The immediate chat history is kept in memory, the length of the ring buffer for all events (messages, translations, etc) is provided in the `history`-block, the attributes are called `history_size`.
 Note that one translation for each configured language is generated per chat message.
 
 ### Persistence
