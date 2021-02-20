@@ -6,142 +6,139 @@ import (
 	"github.com/antonmedv/expr"
 	"github.com/antonmedv/expr/vm"
 	"github.com/tcriess/lightspeed-chat/filter"
+	"github.com/tcriess/lightspeed-chat/globals"
 	"github.com/tcriess/lightspeed-chat/types"
 )
 
-func (c *Client) EvaluateFilterMessage(message *types.ChatMessage) bool {
-	if message.Filter == "" {
+func (c *Client) EvaluateFilterEvent(event *types.Event) bool {
+	if event.TargetFilter == "" {
 		return true
 	}
-	prog, err := expr.Compile(message.Filter, expr.Env(filter.Env{}))
+	globals.AppLogger.Debug("creating filter program for", "event", event)
+	prog, err := expr.Compile(event.TargetFilter, expr.Env(filter.Env{}))
 	if err != nil {
 		log.Printf("error: could not compile filter: %s", err)
 		return false
 	}
-	return c.RunFilterMessage(message, prog)
+	return c.RunFilterEvent(event, prog)
 }
 
-func (c *Client) RunFilterMessage(message *types.ChatMessage, prog *vm.Program) bool {
-	if message == nil {
-		return false
-	}
-	if prog == nil {
-		return true
-	}
-	env := filter.Env{
-		User: filter.User{
-			Id:         c.user.Id,
-			Tags:       c.user.Tags,
-			IntTags:    c.user.IntTags,
-			LastOnline: c.user.LastOnline.Unix(),
-		},
-		Client: filter.Client{
-			ClientLanguage: c.Language,
-		},
-		Message: filter.Message{
-			MessageLanguage: message.Language,
-		},
-	}
-	res, err := expr.Run(prog, env)
-	if err != nil {
-		log.Printf("error: could not run filter: %s", err)
-		return false
-	}
-	if bRes, ok := res.(bool); ok {
-		if bRes {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *Client) EvaluateFilterTranslation(translation *types.TranslationMessage) bool {
-	if translation.Filter == "" {
-		return true
-	}
-	prog, err := expr.Compile(translation.Filter, expr.Env(filter.Env{}))
-	if err != nil {
-		log.Printf("error: could not compile filter: %s", err)
-		return false
-	}
-	return c.RunFilterTranslation(translation, prog)
-}
-
-func (c *Client) RunFilterTranslation(translation *types.TranslationMessage, prog *vm.Program) bool {
-	if translation == nil {
-		return false
-	}
-	if prog == nil {
-		return true
-	}
-	env := filter.Env{
-		User: filter.User{
-			Id:         c.user.Id,
-			Tags:       c.user.Tags,
-			IntTags:    c.user.IntTags,
-			LastOnline: c.user.LastOnline.Unix(),
-		},
-		Client: filter.Client{
-			ClientLanguage: c.Language,
-		},
-		Message: filter.Message{
-			MessageLanguage: translation.Language,
-		},
-	}
-	res, err := expr.Run(prog, env)
-	if err != nil {
-		log.Printf("error: could not run filter: %s", err)
-		return false
-	}
-	if bRes, ok := res.(bool); ok {
-		if bRes {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *Hub) EvaluateFilterEvent(event types.Event, eventFilter string) bool {
-	if eventFilter == "" {
-		return true
-	}
-	prog, err := expr.Compile(eventFilter, expr.Env(filter.Env{}))
-	if err != nil {
-		log.Printf("error: could not compile filter: %s", err)
-		return false
-	}
-	return h.RunFilterEvent(event, prog)
-}
-
-func (h *Hub) RunFilterEvent(event types.Event, prog *vm.Program) bool {
+func (c *Client) RunFilterEvent(event *types.Event, prog *vm.Program) bool {
 	if event == nil {
 		return false
 	}
 	if prog == nil {
 		return true
 	}
-	env := filter.Env{}
-	switch event.(type) {
-	case *types.EventMessage:
-		msgEvent := event.(*types.EventMessage)
-		env.Message.MessageLanguage = msgEvent.Language
-
-	case *types.EventTranslation:
-		msgTranslation := event.(*types.EventTranslation)
-		env.Message.MessageLanguage = msgTranslation.Language
-
-	case *types.EventCommand:
-		msgCommand := event.(*types.EventCommand)
-		env.Command.Command = msgCommand.Command.Command
-		env.Command.Nick = msgCommand.Command.Nick
-
-	case *types.EventUserLogin:
-		msgUserLogin := event.(*types.EventUserLogin)
-		env.User.Id = msgUserLogin.User.Id
-		env.User.Tags = msgUserLogin.Tags
-		env.User.IntTags = msgUserLogin.IntTags
-		env.User.LastOnline = msgUserLogin.LastOnline.Unix()
+	env := filter.Env{
+		Room: filter.Room{
+			Id: c.hub.Room.Id,
+			Owner: filter.User{
+				Id:         c.hub.Room.Owner.Id,
+				Nick:       c.hub.Room.Owner.Nick,
+				Language:   c.hub.Room.Owner.Language,
+				Tags:       c.hub.Room.Owner.Tags,
+				IntTags:    c.hub.Room.Owner.IntTags,
+				LastOnline: c.hub.Room.Owner.LastOnline.Unix(),
+			},
+		},
+		Source: filter.Source{
+			User: filter.User{
+				Id:         event.Source.User.Id,
+				Nick:       event.Source.User.Nick,
+				Language:   event.Source.User.Language,
+				Tags:       event.Source.User.Tags,
+				IntTags:    event.Source.User.IntTags,
+				LastOnline: event.Source.User.LastOnline.Unix(),
+			},
+			PluginName: event.Source.PluginName,
+		},
+		Target: filter.Target{
+			User: filter.User{
+				Id:         c.user.Id,
+				Nick:       c.user.Nick,
+				Language:   c.user.Language,
+				Tags:       c.user.Tags,
+				IntTags:    c.user.IntTags,
+				LastOnline: c.user.LastOnline.Unix(),
+			},
+			Client: filter.Client{
+				ClientLanguage: c.Language,
+			},
+		},
+		Created:  event.Created.Unix(),
+		Language: event.Language,
+		Name:     event.Name,
+		Tags:     event.Tags,
+		IntTags:  event.IntTags,
 	}
+	globals.AppLogger.Debug("running filter", "env.Target.Client.ClientLanguage", env.Client.ClientLanguage, "event.Language", event.Language, "env", env, "event", event)
+	res, err := expr.Run(prog, env)
+	if err != nil {
+		log.Printf("error: could not run filter: %s", err)
+		return false
+	}
+	globals.AppLogger.Debug("filter result:", "res", res)
+	if bRes, ok := res.(bool); ok && bRes {
+		return true
+	}
+
+	return false
+}
+
+func (h *Hub) EvaluatePluginFilterEvent(event *types.Event, pluginFilter string) bool {
+	if event.TargetFilter == "" {
+		return true
+	}
+	prog, err := expr.Compile(pluginFilter, expr.Env(filter.Env{}))
+	if err != nil {
+		log.Printf("error: could not compile filter: %s", err)
+		return false
+	}
+	return h.RunPluginFilterEvent(event, prog)
+}
+
+func (h *Hub) RunPluginFilterEvent(event *types.Event, prog *vm.Program) bool {
+	if event == nil {
+		return false
+	}
+	if prog == nil {
+		return true
+	}
+	env := filter.Env{
+		Room: filter.Room{
+			Id: h.Room.Id,
+			Owner: filter.User{
+				Id:         h.Room.Owner.Id,
+				Nick:       h.Room.Owner.Nick,
+				Language:   h.Room.Owner.Language,
+				Tags:       h.Room.Owner.Tags,
+				IntTags:    h.Room.Owner.IntTags,
+				LastOnline: h.Room.Owner.LastOnline.Unix(),
+			},
+		},
+		Source: filter.Source{
+			User: filter.User{
+				Id:         event.Source.User.Id,
+				Nick:       event.Source.User.Nick,
+				Language:   event.Source.User.Language,
+				Tags:       event.Source.User.Tags,
+				IntTags:    event.Source.User.IntTags,
+				LastOnline: event.Source.User.LastOnline.Unix(),
+			},
+			PluginName: event.Source.PluginName,
+		},
+		Target: filter.Target{
+			User:   filter.User{},
+			Client: filter.Client{},
+		},
+		Created:  event.Created.Unix(),
+		Language: event.Language,
+		Name:     event.Name,
+		Tags:     event.Tags,
+		IntTags:  event.IntTags,
+	}
+
 	res, err := expr.Run(prog, env)
 	if err != nil {
 		log.Printf("error: could not run filter: %s", err)
@@ -152,5 +149,6 @@ func (h *Hub) RunFilterEvent(event types.Event, prog *vm.Program) bool {
 			return true
 		}
 	}
+
 	return false
 }

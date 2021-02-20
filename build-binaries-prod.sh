@@ -2,7 +2,7 @@
 
 set -e -u -o pipefail
 
-readonly BINARIES=(cmd/lightspeed-chat)
+readonly BINARIES=(cmd/lightspeed-chat cmd/lightspeed-chat-admin)
 
 go mod vendor
 # pkger available via

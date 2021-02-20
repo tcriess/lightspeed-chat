@@ -11,9 +11,16 @@ type emitEventsHelper struct {
 }
 
 // Here, we receive the events that were emitted by the plugins
-func (eh *emitEventsHelper) EmitEvents(events []types.Event) error {
+func (eh *emitEventsHelper) EmitEvents(events []*types.Event) error {
 	hclog.Default().Info("in main->emitEvents", "events", events)
-	err := eh.hub.handleEvents(events)
+	skipPlugins := make(map[string]struct{})
+	skipPlugins[eh.pluginName] = struct{}{}
+	err := eh.hub.handlePlugins(events, skipPlugins)
+	if err != nil {
+		hclog.Default().Error("could not handle events", "error", err)
+		return err
+	}
+	err = eh.hub.handleEvents(events)
 	if err != nil {
 		hclog.Default().Error("could not handle events", "error", err)
 		return err

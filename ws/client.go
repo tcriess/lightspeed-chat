@@ -2,13 +2,17 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
+	"html"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/mitchellh/mapstructure"
+	"github.com/tcriess/lightspeed-chat/globals"
 	"github.com/tcriess/lightspeed-chat/types"
 )
 
@@ -27,11 +31,13 @@ type Client struct {
 	// Buffered channel of outbound messages.
 	Send chan []byte
 
+	SendEvents chan []*types.Event
+
 	Language string
 
 	user *types.User
 
-	pluginChan chan types.Event
+	pluginChan chan []*types.Event
 	doneChan   chan struct{}
 
 	// WaitGroup which keeps track of running read/write loops and write access to Send. If the WaitGroup is done,
@@ -51,57 +57,24 @@ func NewClient(hub *Hub, conn *websocket.Conn, user *types.User, language string
 		hub:        hub,
 		conn:       conn,
 		Send:       make(chan []byte, sendChannelSize),
+		SendEvents: make(chan []*types.Event, sendChannelSize),
 		user:       user,
 		Language:   lang,
 		doneChan:   doneChan,
-		pluginChan: make(chan types.Event, pluginChannelSize),
+		pluginChan: make(chan []*types.Event, pluginChannelSize),
 	}
 }
 
-func (c *Client) SendChatHistory(chatHistory []types.ChatMessage, wg *sync.WaitGroup) {
-	log.Println("info: in SendChatHistory")
+func (c *Client) SendHistory(events []*types.Event, wg *sync.WaitGroup) {
+	log.Println("info: in SendHistory")
 	if wg != nil {
 		defer wg.Done()
 	}
-	for _, chatMsg := range chatHistory {
-		if !c.EvaluateFilterMessage(&chatMsg) {
-			continue
-		}
-		messageBytes, err := json.Marshal(types.WireChatMessage{
-			ChatMessage: &chatMsg,
-		})
-		if err != nil {
-			log.Printf("could not marshal message: %s", err)
-			continue
-		}
-		c.hub.RLock()
-		if _, ok := c.hub.clients[c]; ok {
-			c.Send <- messageBytes
-		}
-		c.hub.RUnlock()
+	c.hub.RLock()
+	if _, ok := c.hub.clients[c]; ok {
+		c.SendEvents <- events
 	}
-}
-
-func (c *Client) SendTranslationHistory(translationHistory []types.TranslationMessage, wg *sync.WaitGroup) {
-	log.Println("info: in SendTranslationHistory")
-	if wg != nil {
-		defer wg.Done()
-	}
-	for _, translationMsg := range translationHistory {
-		if !c.EvaluateFilterTranslation(&translationMsg) {
-			continue
-		}
-		messageBytes, err := json.Marshal(types.WireTranslationMessage{TranslationMessage: &translationMsg})
-		if err != nil {
-			log.Printf("could not marshal message: %s", err)
-			continue
-		}
-		c.hub.RLock()
-		if _, ok := c.hub.clients[c]; ok {
-			c.Send <- messageBytes
-		}
-		c.hub.RUnlock()
-	}
+	c.hub.RUnlock()
 }
 
 // ReadLoop pumps messages from the websocket connection to the hub.
@@ -137,114 +110,7 @@ func (c *Client) ReadLoop() {
 		}
 
 		switch message.Event {
-		/*
-			case MessageTypeLogin:
-				respMsg := LoginMessage{Nick: c.username}
-				loginMsgMap := make(map[string]interface{})
-				err = json.Unmarshal(message.Data, &loginMsgMap)
-				if err != nil {
-					log.Printf("error: could not unmarshal login message: %s", err)
-					respMsg.ErrorMessage = err.Error()
-					resp, err := json.Marshal(respMsg)
-					if err != nil {
-						log.Printf("error: could not marshal login response")
-						return
-					}
-					c.Send <- resp
-					return
-				}
-				loginMsg := LoginMessage{}
-				err = mapstructure.WeakDecode(loginMsgMap, &loginMsg)
-				if err != nil {
-					log.Printf("error: could not decode chat message: %s", err)
-					respMsg.ErrorMessage = err.Error()
-					resp, err := json.Marshal(respMsg)
-					if err != nil {
-						log.Printf("error: could not marshal login response")
-						return
-					}
-					c.Send <- resp
-					return
-				}
-
-				if loginMsg.IdToken == "" || c.hub.Cfg.OIDCConfig.ProviderUrl == "" {
-					resp, err := json.Marshal(respMsg)
-					if err != nil {
-						log.Printf("error: could not marshal login response")
-						return
-					}
-					c.Send <- resp
-					continue
-				}
-
-				provider, err := oidc.NewProvider(context.Background(), c.hub.Cfg.OIDCConfig.ProviderUrl)
-				if err != nil {
-					respMsg.ErrorMessage = err.Error()
-					resp, err := json.Marshal(respMsg)
-					if err != nil {
-						log.Printf("error: could not marshal login response")
-						return
-					}
-					c.Send <- resp
-				}
-				config := oidc.Config{}
-				if c.hub.Cfg.OIDCConfig.ClientId == "" {
-					config.SkipClientIDCheck = true
-				} else {
-					config.ClientID = c.hub.Cfg.OIDCConfig.ClientId
-				}
-				verifier := provider.Verifier(&config)
-				//keySet := oidc.NewRemoteKeySet(context.Background(), "https://www.googleapis.com/oauth2/v3/certs")
-				//verifier := oidc.NewVerifier("https://accounts.google.com", keySet, &config)
-				idToken, err := verifier.Verify(context.Background(), loginMsg.IdToken)
-				if err != nil {
-					log.Printf("error: could not verify token: %s", err)
-					respMsg.ErrorMessage = err.Error()
-					resp, err := json.Marshal(respMsg)
-					if err != nil {
-						log.Printf("error: could not marshal login response")
-						return
-					}
-					c.Send <- resp
-					continue
-				}
-				log.Printf("idToken: %+v (verified)", *idToken)
-				claims := struct {
-					Email string `json:"email"`
-				}{}
-				err = idToken.Claims(&claims)
-				if err != nil {
-					log.Printf("error: could not parse claims: %s", err)
-					respMsg.ErrorMessage = err.Error()
-					resp, err := json.Marshal(respMsg)
-					if err != nil {
-						log.Printf("error: could not marshal login response")
-						return
-					}
-					c.Send <- resp
-					continue
-				}
-				log.Printf("claims: %v", claims)
-				if claims.Email != "" {
-					c.username = claims.Email
-					respMsg.Nick = c.username
-					resp, err := json.Marshal(respMsg)
-					if err != nil {
-						log.Printf("error: could not marshal login response")
-						return
-					}
-					c.Send <- resp
-				} else {
-					respMsg.ErrorMessage = "empty e-mail address"
-					resp, err := json.Marshal(respMsg)
-					if err != nil {
-						log.Printf("error: could not marshal login response")
-						return
-					}
-					c.Send <- resp
-				}
-		*/
-		case types.MessageTypeChat:
+		case types.WireMessageTypeChat:
 			chatMsgMap := make(map[string]interface{})
 			err = json.Unmarshal(message.Data, &chatMsgMap)
 			if err != nil {
@@ -259,31 +125,87 @@ func (c *Client) ReadLoop() {
 			}
 			chatMsg.Timestamp = time.Now()
 			chatMsg.Nick = c.user.Nick
-			err = chatMsg.CreateId()
-			if err != nil {
-				log.Printf("error: could not hash chat message: %s", err)
-				return
+			source := &types.Source{
+				User: c.user,
+			}
+			tags := map[string]string{
+				"message":   html.EscapeString(chatMsg.Message),
+				"mime_type": "text/plain",
 			}
 			if !strings.HasPrefix(chatMsg.Message, "/") {
-				c.hub.ChatHistory <- &chatMsg
-				c.hub.BroadcastChat <- &chatMsg
-				c.pluginChan <- types.NewMessageEvent(chatMsg)
-			} else {
-				raw, err := json.Marshal(types.WireChatMessage{ChatMessage: &chatMsg})
-				if err != nil {
-					log.Printf("error: could not marshal chat message: %s", err)
-					return
-				}
+				event := types.NewEvent(c.hub.Room, source, chatMsg.Filter, chatMsg.Language, types.EventTypeChat, tags, nil)
+				events := []*types.Event{event}
+				c.hub.EventHistory <- events
+				c.hub.BroadcastEvents <- events
 				c.hub.RLock()
 				if _, ok := c.hub.clients[c]; ok {
-					c.Send <- raw
+					c.pluginChan <- events
 				}
 				c.hub.RUnlock()
-				c.pluginChan <- types.NewCommandEvent(types.Command{
-					Command: chatMsg.Message,
-					Nick:    chatMsg.Nick,
-				})
+			} else {
+				// set the filter to send commands only to the original sender
+				filter := ""
+				if chatMsg.Filter != "" {
+					filter = "(" + chatMsg.Filter + ") && " + fmt.Sprintf(`Target.User.Id == %s`, strconv.Quote(c.user.Id))
+				} else {
+					filter = fmt.Sprintf(`Target.User.Id == %s`, strconv.Quote(c.user.Id))
+				}
+				fields := strings.Fields(chatMsg.Message)
+				args := ""
+				if len(fields) > 1 {
+					args = strings.Join(fields[1:], " ")
+				}
+				tags["command"] = fields[0]
+				tags["args"] = args
+				cmdEvent := types.NewEvent(c.hub.Room, source, filter, chatMsg.Language, types.EventTypeCommand, tags, nil)
+				events := []*types.Event{cmdEvent}
+				c.hub.RLock()
+				if _, ok := c.hub.clients[c]; ok {
+					c.SendEvents <- events
+					c.pluginChan <- events
+				}
+				c.hub.RUnlock()
 			}
+
+		default:
+			// the client sends "something". We assume it is an event and add source and room information.
+			msgMap := make(map[string]interface{})
+			err = json.Unmarshal(message.Data, &msgMap)
+			if err != nil {
+				log.Printf("error: could not unmarshal message: %s", err)
+				return
+			}
+			msg := struct {
+				TargetFilter string            `mapstructure:"target_filter"`
+				Language     string            `mapstructure:"language"`
+				Tags         map[string]string `mapstructure:"tags"`
+				IntTags      map[string]int64  `mapstructure:"int_tags"`
+			}{}
+			err = mapstructure.WeakDecode(msgMap, &msg)
+			if err != nil {
+				log.Printf("error: could not decode message: %s", err)
+				return
+			}
+			source := &types.Source{
+				User: &types.User{
+					Id:         c.user.Id,
+					Nick:       c.user.Nick,
+					Language:   c.user.Language,
+					Tags:       c.user.Tags,
+					IntTags:    c.user.IntTags,
+					LastOnline: c.user.LastOnline,
+				},
+				PluginName: "",
+			}
+			event := types.NewEvent(c.hub.Room, source, msg.TargetFilter, msg.Language, message.Event, msg.Tags, msg.IntTags)
+			events := []*types.Event{event}
+			c.hub.EventHistory <- events
+			c.hub.BroadcastEvents <- events
+			c.hub.RLock()
+			if _, ok := c.hub.clients[c]; ok {
+				c.pluginChan <- events
+			}
+			c.hub.RUnlock()
 		}
 	}
 }
@@ -309,6 +231,50 @@ func (c *Client) WriteLoop() {
 		default:
 		}
 		select {
+		case events, ok := <-c.SendEvents:
+			if !ok {
+				// The hub closed the channel.
+				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				log.Println("info: Send event channel closed, exiting write loop")
+				return
+			}
+
+			eventsSlices := make(map[string][]json.RawMessage)
+			for _, event := range events {
+				if event.TargetFilter != "" {
+					if !c.EvaluateFilterEvent(event) {
+						continue
+					}
+				}
+				w, err := json.Marshal(types.WireEvent{Event: event})
+				if err != nil {
+					globals.AppLogger.Error("could not marshal event", "error", err)
+					continue
+				}
+				if _, ok := eventsSlices[event.Name]; !ok {
+					eventsSlices[event.Name] = make([]json.RawMessage, 0, len(events))
+				}
+				eventsSlices[event.Name] = append(eventsSlices[event.Name], w)
+			}
+			for eventType, outEvents := range eventsSlices {
+				outEventType := eventType + "s" // make plural...
+				data, err := json.Marshal(outEvents)
+				if err != nil {
+					globals.AppLogger.Error("could not marshal events", "error", err)
+					continue
+				}
+				msg := types.WebsocketMessage{
+					Event: outEventType,
+					Data:  data,
+				}
+				w, err := json.Marshal(msg)
+				if err != nil {
+					globals.AppLogger.Error("could not marshal events", "error", err)
+					continue
+				}
+				c.Send <- w
+			}
+
 		case message, ok := <-c.Send:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
@@ -323,15 +289,12 @@ func (c *Client) WriteLoop() {
 				log.Println("info could not write to ws connection, exiting write loop")
 				return
 			}
-			_, _ = w.Write(message)
-
-			//// Add queued messages to the current websocket message.
-			//n := len(c.Send)
-			//for i := 0; i < n; i++ {
-			//	//_, _ = w.Write([]byte{'\n'})
-			//	message = <-c.Send
-			//	_, _ = w.Write(message)
-			//}
+			_, err = w.Write(message)
+			if err != nil {
+				log.Printf("error: could not send message: %s", err)
+				w.Close()
+				return
+			}
 
 			if err := w.Close(); err != nil {
 				return
@@ -362,12 +325,13 @@ func (c *Client) PluginLoop() {
 		default:
 		}
 		select {
-		case event, ok := <-c.pluginChan:
+		case events, ok := <-c.pluginChan:
 			if !ok {
 				log.Println("info: pluginChan closed, exiting client plugin loop")
 				return
 			}
-			err := c.hub.handlePlugins([]types.Event{event})
+			skipPlugins := make(map[string]struct{})
+			err := c.hub.handlePlugins(events, skipPlugins)
 			if err != nil {
 				log.Printf("error: %s", err)
 				continue

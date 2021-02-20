@@ -5,7 +5,6 @@ import "time"
 type User struct {
 	Id         string            `json:"id"`          // e-mail, unique!
 	Nick       string            `json:"nick"`        // should also be unique
-	IdToken    string            `json:"id_token"`    // latest id token (may be expired)
 	Language   string            `json:"language"`    // alpha-2 iso
 	Tags       map[string]string `json:"tags"`        // tags
 	IntTags    map[string]int64  `json:"int_tags"`    // integer tags (we use int64 here to avoid casting back and forth when transmitting via grpc)

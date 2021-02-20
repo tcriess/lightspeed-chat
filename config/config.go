@@ -15,11 +15,11 @@ type Config struct {
 	OIDCConfigs       []OIDCConfig       `hcl:"oidc,block"`
 	PersistenceConfig *PersistenceConfig `hcl:"persistence,block"`
 	PluginConfigs     []PluginConfig     `hcl:"plugin,block"`
+	LogLevel          *string            `hcl:"log_level"`
 }
 
 type HistoryConfig struct {
-	HistorySize            int `hcl:"history_size"`
-	TranslationHistorySize int `hcl:"translation_history_size"`
+	HistorySize int `hcl:"history_size"`
 }
 
 type OIDCConfig struct {

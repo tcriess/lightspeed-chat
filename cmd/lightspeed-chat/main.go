@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,11 +15,13 @@ import (
 	"github.com/folkengine/goname"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/spf13/pflag"
 	"github.com/tcriess/lightspeed-chat/auth"
 	"github.com/tcriess/lightspeed-chat/config"
+	"github.com/tcriess/lightspeed-chat/globals"
 	"github.com/tcriess/lightspeed-chat/persistence"
 	"github.com/tcriess/lightspeed-chat/plugins"
 	"github.com/tcriess/lightspeed-chat/types"
@@ -43,6 +45,15 @@ var (
 )
 
 func main() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+
+	go func() {
+		<-c
+		plugin.CleanupClients()
+		log.Fatal("interrupted!")
+	}()
+
 	pflag.Parse()
 	log.SetFlags(0)
 
@@ -51,6 +62,10 @@ func main() {
 	globalConfig, pluginConfigs, err := config.ReadConfiguration(*configPath)
 	if err != nil {
 		panic(err)
+	}
+
+	if globalConfig.LogLevel != nil {
+		globals.AppLogger.SetLevel(hclog.LevelFromString(*globalConfig.LogLevel))
 	}
 
 	persister, err := persistence.NewBuntPersister(globalConfig)
@@ -70,6 +85,7 @@ func main() {
 			//AllowedProtocols: []plugin.Protocol{
 			//	plugin.ProtocolNetRPC, plugin.ProtocolGRPC},
 			AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
+			Managed:          true,
 		})
 
 		// Connect via RPC
@@ -96,9 +112,13 @@ func main() {
 		if strings.HasSuffix(pluginName, "-plugin") {
 			pluginName = pluginName[:len(pluginName)-len("-plugin")]
 		}
+		if pluginName == "main" {
+			globals.AppLogger.Warn(`"main" is not a valid plugin name, skipping`)
+			continue
+		}
 		pluginSpec := plugins.PluginSpec{
-			Name:        pluginName,
-			Plugin:      eventHandler,
+			Name:   pluginName,
+			Plugin: eventHandler,
 		}
 		log.Printf("pluginName: %s", pluginName)
 		if cfg, ok := pluginConfigs[pluginName]; ok {
@@ -124,16 +144,23 @@ func main() {
 	}
 	defer plugin.CleanupClients()
 
-	hub := ws.NewHub("default", globalConfig, persister, globalPlugins)
+	// TODO: fetch from DB
+	room := &types.Room{
+		Id:    "default",
+		Owner: &types.User{},
+	}
+
+	hub := ws.NewHub(room, globalConfig, persister, globalPlugins)
 	hubs["default"] = hub
 	go hub.Run()
 	setupRoutes()
 	// start HTTP server
 	if *sslCert != "" && *sslKey != "" {
-		log.Fatal(http.ListenAndServeTLS(*addr, *sslCert, *sslKey, nil))
+		err = http.ListenAndServeTLS(*addr, *sslCert, *sslKey, nil)
 	} else {
-		log.Fatal(http.ListenAndServe(*addr, nil))
+		err = http.ListenAndServe(*addr, nil)
 	}
+	globals.AppLogger.Error("stopped listening", "error", err)
 }
 
 func setupRoutes() {
@@ -187,24 +214,24 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	nick := userId
 	if nick == "" {
 		nick = goname.New(goname.FantasyMap).FirstLast() + " (guest)"
+		userId = nick
 	}
 	user := types.User{
 		Id:         userId,
 		Nick:       nick,
-		IdToken:    "",
 		Language:   "",
 		Tags:       make(map[string]string),
 		IntTags:    make(map[string]int64),
 		LastOnline: time.Time{},
 	}
-	if userId != "" {
+	if userId != "" && hub.Persister != nil {
 		err = hub.Persister.GetUser(&user)
 		if err == buntdb.ErrNotFound {
 			user.Language = "en"
 			user.LastOnline = time.Now()
 			err := hub.Persister.StoreUser(user)
 			if err != nil {
-				log.Printf("error: could not store user: %s", err)
+				globals.AppLogger.Error("could not store user", "error", err)
 				return
 			}
 		} else {
@@ -216,42 +243,40 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c := ws.NewClient(hub, conn, &user, language, doneChan)
-
 	go c.PluginLoop()
 
+	// Add to the hub
+	c.Add(1)
+	hub.Register <- c
+	// actually, it is not guaranteed that the client really _is_ registered at this point, as the read-out of the hub's
+	// register channel happens asynchronously.
+	// maybe we should wait here for the client to be actually registered, so the following broadcast calls
+	// also reach the new client
+	c.Wait()
+	defer func() {
+		hub.Unregister <- c
+	}()
 	c.Add(2)
 	go c.ReadLoop()
 	go c.WriteLoop()
 
-	// Add to the hub
-	hub.Register <- c
-	defer func() {
-		hub.Unregister <- c
-	}()
+	source := &types.Source{
+		User:       &user,
+		PluginName: "main",
+	}
 
-	msg := types.LoginMessage{
-		Nick: user.Nick,
+	tags := map[string]string{
+		"action": "login",
 	}
-	loginMsg, err := json.Marshal(msg)
-	if err != nil {
-		panic(err)
-	}
-	wsMsg := types.WebsocketMessage{
-		Event: types.MessageTypeLogin,
-		Data:  loginMsg,
-	}
-	wire, err := json.Marshal(wsMsg)
-	if err != nil {
-		panic(err)
-	}
+	userEvent := types.NewEvent(hub.Room, source, "", "", types.EventTypeUser, tags, nil)
+
 	wg := &sync.WaitGroup{}
 	wg.Add(3)
-	go func(wg *sync.WaitGroup) {
+	go func(evt *types.Event, wg *sync.WaitGroup) {
 		defer wg.Done()
-		c.Send <- wire
-	}(wg)
-	go c.SendChatHistory(hub.GetChatHistory(), wg)
-	go c.SendTranslationHistory(hub.GetTranslationHistory(), wg)
+		hub.BroadcastEvents <- []*types.Event{evt}
+	}(userEvent, wg)
+	go c.SendHistory(hub.GetHistory(), wg)
 	// make sure those 3 are done before closing the send channel
 	wg.Wait()
 	<-doneChan

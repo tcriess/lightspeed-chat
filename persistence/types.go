@@ -7,11 +7,11 @@ import (
 )
 
 type Persister interface {
-	StoreChatMessage(types.ChatMessage) error
-	StoreTranslationMessage(types.TranslationMessage) error
-	GetChatHistory(time.Time, time.Time, int, int) ([]types.ChatMessage, error)
-	GetTranslationHistory(time.Time, time.Time, int, int) ([]types.TranslationMessage, error)
+	StoreEvents([]*types.Event) error
+	GetEventHistory(time.Time, time.Time, int, int) ([]*types.Event, error)
 	StoreUser(types.User) error
 	GetUser(*types.User) error
+	StoreRoom(types.Room) error
+	GetRoom(*types.Room) error
 	Close() error
 }

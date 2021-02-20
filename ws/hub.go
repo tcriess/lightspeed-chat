@@ -12,34 +12,31 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/tcriess/lightspeed-chat/config"
 	"github.com/tcriess/lightspeed-chat/filter"
+	"github.com/tcriess/lightspeed-chat/globals"
 	"github.com/tcriess/lightspeed-chat/persistence"
 	"github.com/tcriess/lightspeed-chat/plugins"
 	"github.com/tcriess/lightspeed-chat/types"
 )
 
 const (
-	maxMessageSize                = 4096
-	pongWait                      = 2 * time.Minute
-	pingPeriod                    = time.Minute
-	writeWait                     = 10 * time.Second
-	defaultChatHistorySize        = 20
-	defaultTranslationHistorySize = 100
-	broadcastChannelSize          = 1000
-	historyChannelSize            = 1000
+	maxMessageSize          = 4096
+	pongWait                = 2 * time.Minute
+	pingPeriod              = time.Minute
+	writeWait               = 10 * time.Second
+	defaultEventHistorySize = 100
+	broadcastChannelSize    = 1000
+	historyChannelSize      = 1000
 )
 
 type Hub struct {
 	// there is one hub per room
-	roomName string
+	*types.Room
 
 	// Registered clients.
 	clients map[*Client]struct{}
 
-	// Broadcast messages to all clients.
-	Broadcast chan []byte
-
-	BroadcastChat        chan *types.ChatMessage
-	BroadcastTranslation chan *types.TranslationMessage
+	// Broadcast events to all clients.
+	BroadcastEvents chan []*types.Event
 
 	// Register a new client to the hub.
 	Register chan *Client
@@ -48,10 +45,9 @@ type Hub struct {
 	Unregister chan *Client
 
 	// keep the chat history in a ring buffer
-	ChatHistory                                    chan *types.ChatMessage
-	chatHistoryStart, chatHistoryEnd               *ring.Ring
-	TranslationHistory                             chan *types.TranslationMessage
-	translationHistoryStart, translationHistoryEnd *ring.Ring
+	EventHistory                       chan []*types.Event
+	eventHistoryStart, eventHistoryEnd *ring.Ring
+	lockEventHistory                   sync.RWMutex
 
 	// global configuration
 	Cfg *config.Config
@@ -66,77 +62,60 @@ type Hub struct {
 	sync.RWMutex
 }
 
-func NewHub(roomName string, cfg *config.Config, persister persistence.Persister, pluginMap map[string]plugins.PluginSpec) *Hub {
-	chatHistorySize := defaultChatHistorySize
-	translationHistorySize := defaultTranslationHistorySize
+func NewHub(room *types.Room, cfg *config.Config, persister persistence.Persister, pluginMap map[string]plugins.PluginSpec) *Hub {
+	eventHistorySize := defaultEventHistorySize
 	if cfg.HistoryConfig != nil {
 		if cfg.HistoryConfig.HistorySize > 0 {
-			chatHistorySize = cfg.HistoryConfig.HistorySize
-		}
-		if cfg.HistoryConfig.TranslationHistorySize > 0 {
-			translationHistorySize = cfg.HistoryConfig.TranslationHistorySize
+			eventHistorySize = cfg.HistoryConfig.HistorySize
 		}
 	}
-	chatHistory := ring.New(chatHistorySize)
-	translationHistory := ring.New(translationHistorySize)
+	eventHistory := ring.New(eventHistorySize)
 	hub := &Hub{
-		roomName:                roomName,
-		clients:                 make(map[*Client]struct{}),
-		Broadcast:               make(chan []byte, broadcastChannelSize),
-		BroadcastChat:           make(chan *types.ChatMessage, broadcastChannelSize),
-		BroadcastTranslation:    make(chan *types.TranslationMessage, broadcastChannelSize),
-		Register:                make(chan *Client),
-		Unregister:              make(chan *Client),
-		ChatHistory:             make(chan *types.ChatMessage, historyChannelSize),
-		chatHistoryStart:        chatHistory,
-		chatHistoryEnd:          chatHistory,
-		TranslationHistory:      make(chan *types.TranslationMessage, historyChannelSize),
-		translationHistoryStart: translationHistory,
-		translationHistoryEnd:   translationHistory,
-		Cfg:                     cfg,
-		Persister:               persister,
-		pluginMap:               pluginMap,
+		Room:              room,
+		clients:           make(map[*Client]struct{}),
+		BroadcastEvents:   make(chan []*types.Event, broadcastChannelSize),
+		Register:          make(chan *Client),
+		Unregister:        make(chan *Client),
+		EventHistory:      make(chan []*types.Event, historyChannelSize),
+		eventHistoryStart: eventHistory,
+		eventHistoryEnd:   eventHistory,
+		Cfg:               cfg,
+		Persister:         persister,
+		pluginMap:         pluginMap,
 	}
 	if persister != nil {
+		// TODO: refactor to events only
 		var t time.Time
 		n := time.Now().Add(time.Minute)
-		chatMessages, err := persister.GetChatHistory(t, n, 0, chatHistorySize)
+		events, err := persister.GetEventHistory(t, n, 0, eventHistorySize)
 		if err != nil {
-			log.Printf("error: could not load persisted chat messages: %s", err)
+			globals.AppLogger.Error("could not load persisted events", "error", err)
 		}
-		for _, cm := range chatMessages {
-			hub.chatHistoryEnd.Value = cm
-			hub.chatHistoryEnd = hub.chatHistoryEnd.Next()
-			if hub.chatHistoryEnd == hub.chatHistoryStart {
-				hub.chatHistoryStart = hub.chatHistoryStart.Next()
+		globals.AppLogger.Debug("loaded events", "events", events)
+		hub.lockEventHistory.Lock()
+		for _, event := range events {
+			hub.eventHistoryEnd.Value = event
+			hub.eventHistoryEnd = hub.eventHistoryEnd.Next()
+			if hub.eventHistoryEnd == hub.eventHistoryStart {
+				hub.eventHistoryStart = hub.eventHistoryStart.Next()
 			}
 		}
-		translationMessages, err := persister.GetTranslationHistory(t, n, 0, translationHistorySize)
-		if err != nil {
-			log.Printf("error: could not load persisted translations: %s", err)
-		}
-		for _, tm := range translationMessages {
-			hub.translationHistoryEnd.Value = tm
-			hub.translationHistoryEnd = hub.translationHistoryEnd.Next()
-			if hub.translationHistoryEnd == hub.translationHistoryStart {
-				hub.translationHistoryStart = hub.translationHistoryStart.Next()
-			}
-		}
+		hub.lockEventHistory.Unlock()
 	}
 	for pluginName, plg := range pluginMap {
 		eh := emitEventsHelper{
 			hub:        hub,
 			pluginName: pluginName,
 		}
-		go func(eeh emitEventsHelper) {
+		go func(eeh emitEventsHelper, plg plugins.PluginSpec) {
 			for {
-				err := plg.Plugin.InitEmitEvents(&eeh) // never exits
+				err := plg.Plugin.InitEmitEvents(hub.Room, &eeh) // never exits
 				if err != nil {
 					log.Printf("error: could not init emit events for plugin %s", pluginName)
 					<-time.After(time.Second)
 				}
 			}
-		}(eh)
+		}(eh, plg)
 	}
 	return hub
 }
@@ -149,13 +128,17 @@ func (h *Hub) NoClients() int {
 	return len(h.clients)
 }
 
-func (h *Hub) handlePlugins(events []types.Event) error {
+func (h *Hub) handlePlugins(events []*types.Event, skipPlugins map[string]struct{}) error {
+	log.Printf("in handlePlugins, skipPlugins=%+v", skipPlugins)
 	for pluginName, plg := range h.pluginMap {
+		if _, ok := skipPlugins[pluginName]; ok {
+			continue
+		}
 		log.Printf("calling plugin: %s", pluginName)
-		passEvents := make([]types.Event, 0)
+		passEvents := make([]*types.Event, 0)
 		for _, event := range events {
 			if plg.EventFilter != "" {
-				if h.EvaluateFilterEvent(event, plg.EventFilter) {
+				if h.EvaluatePluginFilterEvent(event, plg.EventFilter) {
 					passEvents = append(passEvents, event)
 				}
 			} else {
@@ -170,6 +153,17 @@ func (h *Hub) handlePlugins(events []types.Event) error {
 			log.Printf("error: could not call plugin to handle message: %s", err)
 			continue
 		}
+		newSkipPlugins := make(map[string]struct{})
+		for key, val := range skipPlugins {
+			newSkipPlugins[key] = val
+		}
+		newSkipPlugins[pluginName] = struct{}{}
+		err = h.handlePlugins(resEvents, newSkipPlugins)
+		if err != nil {
+			log.Printf("error: could not handle plugins: %s", err)
+			continue
+		}
+		globals.AppLogger.Info("plugin handled", "plugin", pluginName, "resEvents", resEvents)
 		err = h.handleEvents(resEvents)
 		if err != nil {
 			log.Printf("error: could not handle events: %s", err)
@@ -179,25 +173,11 @@ func (h *Hub) handlePlugins(events []types.Event) error {
 	return nil
 }
 
-func (h *Hub) handleEvents(events []types.Event) error {
-	for _, event := range events {
-		switch event.GetEventType() {
-		case types.EventTypeMessage:
-			msgEvent := event.(*types.EventMessage)
-			h.BroadcastChat <- msgEvent.ChatMessage
-			h.ChatHistory <- msgEvent.ChatMessage
-
-		case types.EventTypeTranslation:
-			transEvent := event.(*types.EventTranslation)
-			h.BroadcastTranslation <- transEvent.TranslationMessage
-			h.TranslationHistory <- transEvent.TranslationMessage
-
-		case types.EventTypeCommand:
-			// TODO
-
-		case types.EventTypeUserLogin:
-			// TODO
-		}
+func (h *Hub) handleEvents(events []*types.Event) error {
+	globals.AppLogger.Debug("in main handle Events", "events", events)
+	if len(events) > 0 {
+		h.BroadcastEvents <- events
+		h.EventHistory <- events
 	}
 	return nil
 }
@@ -209,9 +189,16 @@ func (h *Hub) Run() {
 		if plg.CronSpec != "" && pluginName != "" {
 			if plg, ok := h.pluginMap[pluginName]; ok {
 				entryId, err := cronRunner.AddFunc(plg.CronSpec, func() {
-					events, err := plg.Plugin.Cron()
+					events, err := plg.Plugin.Cron(h.Room)
 					if err != nil {
 						log.Printf("error calling cron: %s", err)
+						return
+					}
+					skipPlugins := make(map[string]struct{})
+					skipPlugins[pluginName] = struct{}{}
+					err = h.handlePlugins(events, skipPlugins)
+					if err != nil {
+						log.Printf("error handling plugins: %s", err)
 						return
 					}
 					err = h.handleEvents(events)
@@ -238,6 +225,7 @@ func (h *Hub) Run() {
 			h.Lock()
 			h.clients[client] = struct{}{}
 			h.Unlock()
+			client.Done()
 			go h.SendInfo(h.GetInfo())
 
 		case client := <-h.Unregister:
@@ -249,6 +237,7 @@ func (h *Hub) Run() {
 
 					h.Lock()
 					delete(h.clients, client)
+					h.Unlock()
 					log.Println("close connection (probably already is closed, just to make sure)")
 					client.conn.Close()
 					log.Println("wait for all loops and write operations to be finished")
@@ -275,9 +264,9 @@ func (h *Hub) Run() {
 					// }()
 					// close the channel and hope there is no more write to it
 					close(client.Send)
+					close(client.SendEvents)
 					log.Println("close plugin channel")
 					close(client.pluginChan)
-					h.Unlock()
 					log.Println("broadcast new room info")
 					go h.SendInfo(h.GetInfo()) // this way the number of clients does not change between calling the goroutine and executing it
 				} else {
@@ -285,152 +274,95 @@ func (h *Hub) Run() {
 				}
 			}()
 
-		case message := <-h.Broadcast:
-			log.Printf("info: broadcast %s to all clients", message)
-			go func() {
-				var wg sync.WaitGroup
-				h.RLock()
-				for client := range h.clients {
-					wg.Add(1)
-					client.Add(1)
-					go func(c *Client) {
-						defer wg.Done()
-						defer c.Done()
-						c.Send <- message
-					}(client)
+		case events := <-h.BroadcastEvents:
+			for i, event := range events {
+				var prog *vm.Program
+				if event.TargetFilter != "" {
+					var err error
+					prog, err = expr.Compile(event.TargetFilter, expr.Env(filter.Env{}))
+					if err != nil {
+						log.Printf("error: could not compile filter: %s", err)
+					}
 				}
-				log.Println("info: wait for broadcast to finish")
-				wg.Wait()
-				h.RUnlock()
-				log.Println("info: broadcast done.")
-			}()
-		case message := <-h.BroadcastChat:
-			var prog *vm.Program
-			if message.Filter != "" {
-				var err error
-				prog, err = expr.Compile(message.Filter, expr.Env(filter.Env{}))
-				if err != nil {
-					log.Printf("error: could not compile filter: %s", err)
-				}
+				globals.AppLogger.Debug("checking event", "event", event)
+				go func(evt *types.Event, prg *vm.Program) {
+					var wg sync.WaitGroup
+					globals.AppLogger.Debug("checking event", "event", event, "evt (in goroutine)", evt)
+					h.RLock()
+					for client := range h.clients {
+						if !client.RunFilterEvent(evt, prg) {
+							globals.AppLogger.Debug("filter prevented event!", "client", client, "client.Language", client.Language)
+							continue
+						}
+						globals.AppLogger.Debug("event passed filter!", "client", client, "client.Language", client.Language)
+						if data, err := json.Marshal(types.WireEvent{Event: evt}); err == nil {
+							wg.Add(1)
+							client.Add(1)
+							go func(c *Client, d []byte) {
+								defer wg.Done()
+								defer c.Done()
+								globals.AppLogger.Debug("about to send", "data", string(d))
+								c.Send <- d
+							}(client, data)
+						}
+					}
+					log.Println("info: wait for broadcast to finish")
+					wg.Wait()
+					h.RUnlock()
+				}(events[i], prog)
 			}
-			go func() {
-				var wg sync.WaitGroup
-				h.RLock()
-				for client := range h.clients {
-					if !client.RunFilterMessage(message, prog) {
-						continue
-					}
-					if data, err := json.Marshal(types.WireChatMessage{ChatMessage: message}); err == nil {
-						wg.Add(1)
-						client.Add(1)
-						go func(c *Client) {
-							defer wg.Done()
-							defer c.Done()
-							c.Send <- data
-						}(client)
-					}
-				}
-				log.Println("info: wait for broadcast to finish")
-				wg.Wait()
-				h.RUnlock()
-			}()
 
-		case message := <-h.BroadcastTranslation:
-			var prog *vm.Program
-			if message.Filter != "" {
-				var err error
-				prog, err = expr.Compile(message.Filter, expr.Env(filter.Env{}))
-				if err != nil {
-					log.Printf("error: could not compile filter: %s", err)
+		case events := <-h.EventHistory:
+			h.lockEventHistory.Lock()
+			for _, event := range events {
+				h.eventHistoryEnd.Value = event
+				h.eventHistoryEnd = h.eventHistoryEnd.Next()
+				if h.eventHistoryEnd == h.eventHistoryStart {
+					h.eventHistoryStart = h.eventHistoryStart.Next()
 				}
 			}
-			go func() {
-				var wg sync.WaitGroup
-				h.RLock()
-				for client := range h.clients {
-					if !client.RunFilterTranslation(message, prog) {
-						continue
-					}
-					if data, err := json.Marshal(types.WireTranslationMessage{TranslationMessage: message}); err == nil {
-						wg.Add(1)
-						client.Add(1)
-						go func(c *Client) {
-							defer wg.Done()
-							defer c.Done()
-							c.Send <- data
-						}(client)
-					}
-				}
-				log.Println("info: wait for broadcast to finish")
-				wg.Wait()
-				h.RUnlock()
-			}()
+			h.lockEventHistory.Unlock()
 
-		case chatMessage := <-h.ChatHistory:
-			log.Printf("info: attach message %s to history", chatMessage)
-			h.chatHistoryEnd.Value = *chatMessage
-			h.chatHistoryEnd = h.chatHistoryEnd.Next()
-			if h.chatHistoryEnd == h.chatHistoryStart {
-				h.chatHistoryStart = h.chatHistoryStart.Next()
-			}
 			if h.Persister != nil {
-				err := h.Persister.StoreChatMessage(*chatMessage)
+				err := h.Persister.StoreEvents(events)
 				if err != nil {
-					log.Printf("error: could not persist chat message: %s", err)
-				}
-			}
-
-		case translationMessage := <-h.TranslationHistory:
-			h.translationHistoryEnd.Value = *translationMessage
-			h.translationHistoryEnd = h.translationHistoryEnd.Next()
-			if h.translationHistoryEnd == h.translationHistoryStart {
-				h.translationHistoryStart = h.translationHistoryStart.Next()
-			}
-			if h.Persister != nil {
-				err := h.Persister.StoreTranslationMessage(*translationMessage)
-				if err != nil {
-					log.Printf("error: could not persist translation message: %s", err)
+					globals.AppLogger.Error("could not persist events", "error", err)
 				}
 			}
 		}
 	}
 }
 
-func (h *Hub) GetInfo() types.InfoMessage {
+/*
+
+ */
+
+func (h *Hub) GetHistory() []*types.Event {
+	history := make([]*types.Event, 0)
+	h.lockEventHistory.RLock()
+	defer h.lockEventHistory.RUnlock()
+	current := h.eventHistoryStart
+	for ; current != h.eventHistoryEnd; current = current.Next() {
+		history = append(history, current.Value.(*types.Event))
+	}
+	return history
+}
+
+func (h *Hub) GetInfo() *types.Event {
 	log.Println("info: in GetInfo")
-	return types.InfoMessage{
-		RoomName:      h.roomName,
-		NoConnections: h.NoClients(),
+	tags := make(map[string]string)
+	h.RLock()
+	for c := range h.clients {
+		tags[c.user.Id] = c.user.Nick
 	}
-}
-
-func (h *Hub) GetChatHistory() []types.ChatMessage {
-	chatHistory := make([]types.ChatMessage, 0)
-	current := h.chatHistoryStart
-	for ; current != h.chatHistoryEnd; current = current.Next() {
-		chatHistory = append(chatHistory, current.Value.(types.ChatMessage))
+	h.RUnlock()
+	source := &types.Source{
+		PluginName: "main",
 	}
-	log.Printf("chatHistory %+v", chatHistory)
-	return chatHistory
-}
-
-func (h *Hub) GetTranslationHistory() []types.TranslationMessage {
-	log.Println("In GetTranslationHistory")
-	translationHistory := make([]types.TranslationMessage, 0)
-	current := h.translationHistoryStart
-	for ; current != h.translationHistoryEnd; current = current.Next() {
-		translationHistory = append(translationHistory, current.Value.(types.TranslationMessage))
-	}
-	log.Printf("translationHistory: %+v", translationHistory)
-	return translationHistory
+	return types.NewEvent(h.Room, source, "", "", types.EventTypeInfo, tags, nil)
 }
 
 // SendInfo broadcasts hub statistics to all clients.
-func (h *Hub) SendInfo(info types.InfoMessage) {
-	msg, err := json.Marshal(types.WireInfoMessage{InfoMessage: &info})
-	if err != nil {
-		log.Printf("could not marshal ws info: %s", err)
-		return
-	}
-	h.Broadcast <- msg
+func (h *Hub) SendInfo(event *types.Event) {
+	h.BroadcastEvents <- []*types.Event{event}
 }

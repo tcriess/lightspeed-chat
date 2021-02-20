@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
 
 	translate "cloud.google.com/go/translate/apiv3"
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/golang-lru"
 	"github.com/hashicorp/hcl/v2/hcldec"
@@ -22,6 +22,7 @@ const (
 	translatorNick         = "translatorBot"
 	translatorText         = "translatorBot active"
 	translatorTextLanguage = "en-US"
+	pluginName             = "google-translate"
 )
 
 var (
@@ -35,49 +36,54 @@ type cacheKey struct {
 	Text           string
 }
 
+var appLogger = hclog.New(&hclog.LoggerOptions{
+	Name:  pluginName,
+	Level: hclog.LevelFromString("DEBUG"),
+})
+
 // Here is a real implementation of the plugin interface
 type EventHandler struct{}
 
-func (m *EventHandler) HandleEvents(events []types.Event) ([]types.Event, error) {
-	log.Printf("in HandleEvents, about to translate %v", events)
-	log.Printf("project id: %v", projectId)
-	log.Printf("languages: %v", languages)
-	outEvents := make([]types.Event, 0)
+func (m *EventHandler) HandleEvents(events []*types.Event) ([]*types.Event, error) {
+	appLogger.Info("in HandleEvents", "events", events, "projectId", projectId, "languages", languages)
+	outEvents := make([]*types.Event, 0)
 	for _, event := range events {
-		if event.GetEventType() != types.EventTypeMessage {
+		if event.Name != types.EventTypeChat {
 			continue
 		}
-		msgEvent := event.(*types.EventMessage)
-		message := msgEvent.ChatMessage
-		if strings.HasPrefix(message.Message, "/") {
-			return outEvents, nil
+		message, ok := event.Tags["message"]
+		if !ok {
+			continue
 		}
-		//translations := make([]types.TranslationMessage, 0)
+		if strings.HasPrefix(message, "/") {
+			continue
+		}
+		source := &types.Source{
+			User:       event.User,
+			PluginName: pluginName,
+		}
 		for _, language := range languages {
 			isoLang := language[0:2]
-			res, err := translation([]string{message.Message}, language)
+			res, err := translation([]string{message}, language)
 			if err != nil {
 				return outEvents, err
 			}
 			if len(res) == 0 {
-				log.Println("no translation")
+				appLogger.Info("no translation")
 				continue
 			}
 			if res[0] != "" {
-				f := message.Filter
-				if f != "" {
-					f = fmt.Sprintf(`( %s ) && ClientLanguage startsWith %s`, f, strconv.Quote(isoLang))
+				filter := event.TargetFilter
+				if filter != "" {
+					filter = fmt.Sprintf(`( %s ) && Target.Client.ClientLanguage startsWith %s`, filter, strconv.Quote(isoLang))
 				} else {
-					f = fmt.Sprintf(`ClientLanguage startsWith %s`, strconv.Quote(isoLang))
+					filter = fmt.Sprintf(`Target.Client.ClientLanguage startsWith %s`, strconv.Quote(isoLang))
 				}
-				trans := types.TranslationMessage{
-					SourceId:  message.Id,
-					Timestamp: message.Timestamp,
-					Language:  isoLang,
-					Message:   res[0],
-					Filter:    f,
+				tags := map[string]string{
+					"message":   res[0],
+					"source_id": event.Id,
 				}
-				outEvent := types.NewTranslationEvent(trans)
+				outEvent := types.NewEvent(event.Room, source, filter, isoLang, types.EventTypeTranslation, tags, nil)
 				outEvents = append(outEvents, outEvent)
 			}
 		}
@@ -105,6 +111,11 @@ func (m *EventHandler) GetSpec() (*hcldec.BlockSpec, error) {
 				Name: "cache_size",
 				Type: cty.Number,
 			},
+			"log_level": &hcldec.AttrSpec{
+				Name:     "log_level",
+				Type:     cty.String,
+				Required: false,
+			},
 		},
 		Required: false,
 	}
@@ -112,10 +123,17 @@ func (m *EventHandler) GetSpec() (*hcldec.BlockSpec, error) {
 }
 
 func (m *EventHandler) Configure(val cty.Value) (string, string, error) {
-	log.Printf("in plugin configure, value: %+v", val)
+	logLevelAttr := val.GetAttr("log_level")
+	if !logLevelAttr.IsNull() {
+		logLevel := logLevelAttr.AsString()
+		if logLevel != "" {
+			appLogger.SetLevel(hclog.LevelFromString(logLevel))
+		}
+	}
+	appLogger.Info("in plugin configure", "val", val)
 	projectIdAttr := val.GetAttr("project_id")
 	projectId = projectIdAttr.AsString()
-	log.Printf("got projectId = %s", projectId)
+	appLogger.Debug("got", "projectId", projectId)
 	languagesAttr := val.GetAttr("languages")
 	languagesVals := languagesAttr.AsValueSlice()
 	languages = make([]string, len(languagesVals))
@@ -123,28 +141,31 @@ func (m *EventHandler) Configure(val cty.Value) (string, string, error) {
 		languages[i] = lv.AsString()
 	}
 	cronSpec := val.GetAttr("cron_spec").AsString()
-	log.Printf("cronspec: %v", cronSpec)
-	log.Printf("languages: %v", languages)
-	log.Printf("val: %+v", val)
+	appLogger.Debug("got", "cronSpec", cronSpec)
+	appLogger.Debug("got", "languages", languages)
 	cacheSizeFl := val.GetAttr("cache_size").AsBigFloat()
 	cacheSize, _ := cacheSizeFl.Uint64()
 	if cacheSize > 0 {
 		if c, err := lru.NewARC(int(cacheSize)); err == nil {
 			cache = c
 		} else {
-			log.Printf("error: could not create lru cache: %s", err)
+			appLogger.Error("could not create lru cache", "error", err)
 		}
 	}
-	eventFilter := ""
+	eventFilter := `Name == "chat"`
 	return cronSpec, eventFilter, nil
 }
 
-func (m *EventHandler) Cron() ([]types.Event, error) {
-	msg, err := types.NewChatMessage(translatorNick, time.Now(), translatorText, translatorTextLanguage)
-	if err != nil {
-		return nil, err
+func (m *EventHandler) Cron(room *types.Room) ([]*types.Event, error) {
+	tags := map[string]string{
+		"message": translatorText,
 	}
-	events := []types.Event{types.NewMessageEvent(*msg)}
+	source := &types.Source{
+		User:       &types.User{Nick: translatorNick},
+		PluginName: pluginName,
+	}
+	event := types.NewEvent(room, source, "", translatorTextLanguage, types.EventTypeChat, tags, nil)
+	events := []*types.Event{event}
 	outEvents, err := m.HandleEvents(events)
 	if err != nil {
 		return events, err
@@ -154,35 +175,19 @@ func (m *EventHandler) Cron() ([]types.Event, error) {
 }
 
 // make this run forever!
-func (m *EventHandler) InitEmitEvents(eh plugins.EmitEventsHelper) error {
-	log.Println("in plugin initEmitEvents")
+func (m *EventHandler) InitEmitEvents(room *types.Room, eh plugins.EmitEventsHelper) error {
+	appLogger.Info("in plugin initEmitEvents")
 
-	cm := types.ChatMessage{
-		Id:        "TRANS",
-		Nick:      "TRANS",
-		Timestamp: time.Now(),
-		Message:   "TEST",
-		Language:  "en",
-		Filter:    `User.Id startsWith "tcriess"`,
-	}
-
-	log.Println("start emit events loop")
+	appLogger.Debug("start emit events loop")
 	for {
 		<-time.After(60 * time.Second)
-		cm.Timestamp = time.Now()
-		//events := []types.Event{types.NewMessageEvent(cm)}
-		log.Println("about to emit events")
-		//err := eh.EmitEvents(events)
-		//if err != nil {
-		//	log.Printf("error: %s", err)
-		//}
 	}
 
 	return nil
 }
 
 func translation(srcText []string, language string) ([]string, error) {
-	log.Printf("in translation srcText: %+v language: %s", srcText, language)
+	appLogger.Info("in translation", "srcText", srcText, "language", language)
 	translations := make([]string, len(srcText))
 	if len(srcText) == 0 {
 		return translations, nil
@@ -195,7 +200,7 @@ func translation(srcText []string, language string) ([]string, error) {
 		}
 		if v, ok := cache.Get(k); ok {
 			translations[i] = v.(string)
-			log.Printf("found translation in cache!")
+			appLogger.Debug("found translation in cache!")
 		} else {
 			toTranslateIdx = append(toTranslateIdx, i)
 		}
@@ -210,9 +215,8 @@ func translation(srcText []string, language string) ([]string, error) {
 	ctx := context.Background()
 	ctx, _ = context.WithTimeout(ctx, time.Second)
 	c, err := translate.NewTranslationClient(ctx)
-	log.Println("translation client created")
 	if err != nil {
-		log.Printf("error: could not create translation client: %v", err)
+		appLogger.Error("could not create translation client", "error", err)
 		return nil, err
 	}
 	req := &translatepb.TranslateTextRequest{
@@ -227,7 +231,7 @@ func translation(srcText []string, language string) ([]string, error) {
 	}
 	resp, err := c.TranslateText(ctx, req)
 	if err != nil {
-		log.Printf("error: could not translate: %v", err)
+		appLogger.Error("could not translate", "error", err)
 		return nil, err
 	}
 	for i, t := range resp.Translations {
@@ -240,7 +244,7 @@ func translation(srcText []string, language string) ([]string, error) {
 			cache.Add(k, t.TranslatedText)
 		}
 	}
-	log.Printf("translated: %v", translations)
+	appLogger.Debug("translated", "translations", translations)
 	return translations, nil
 }
 

@@ -9,6 +9,7 @@ option go_package = "github.com/tcriess/lightspeed-chat/proto";
 // compile via
 // protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/message.proto
 // in the parent directory
+// (alternatively, run go generate)
 
 message GetSpecRequest {
 }
@@ -27,49 +28,44 @@ message ConfigureResponse {
 }
 
 message CronRequest {
+    Room room = 1;
 }
 
 message CronResponse {
     repeated Event events = 1;
 }
 
-message EventMessage {
+message Room {
     string id = 1;
-    int64 timestamp = 2;
-    string nick = 3;
-    string text = 4;
-    string language = 5;
-    string filter = 6;
+    User owner = 2;
 }
 
-message EventTranslation {
-    string source_id = 1;
-    int64 timestamp = 2;
+message User {
+    string id = 1;
+    string nick = 2;
     string language = 3;
-    string text = 4;
-    string filter = 5;
+    map<string,string> tags = 4;
+    map<string,int64> int_tags = 5;
+    int64 last_online = 6;
 }
 
-message EventCommand {
-    string command = 1;
-    string nick = 2;
-}
-
-message EventUserLogin {
-    string id = 1;
-    string nick = 2;
-    map<string, string> tags = 3;
-    map<string, int64> int_tags = 4;
-    int64 last_online = 5;
+message Source {
+    User user = 1;
+    string plugin_name = 2;
 }
 
 message Event {
-    oneof event_type {
-        EventMessage message = 1;
-        EventTranslation translation = 2;
-        EventCommand command = 3;
-        EventUserLogin user_login = 4;
-    };
+    string id = 1;
+    Room room = 2;
+    Source source = 3;
+    int64 created = 4;
+    string language = 5;
+    string name = 6;
+    map<string,string> tags = 7;
+    map<string,int64> int_tags = 8;
+    int64 sent = 9;
+    string target_filter = 10;
+    bool history = 11;
 }
 
 message HandleEventsRequest {
@@ -82,6 +78,7 @@ message HandleEventsResponse {
 
 message InitEmitEventsRequest {
     uint32 emit_events_server = 1;
+    Room room = 2;
 }
 
 message InitEmitEventsResponse {
