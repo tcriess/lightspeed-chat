@@ -1,7 +1,7 @@
 # Project Lightspeed Chat
 
 [Project Lightspeed](https://github.com/GRVYDEV/Project-Lightspeed) is a live streaming system with very low latency. [Project Lightspeed Chat](https://github.com/tcriess/lightspeed-chat) provides a chat server to
-this ecosystem. The objective is to have a simple yet fully functional chat system the integrates with Lightspeed.
+this ecosystem. The objective is to have a simple yet fully functional chat system that integrates with Lightspeed.
 
 # Features
 
@@ -9,13 +9,13 @@ this ecosystem. The objective is to have a simple yet fully functional chat syst
   ID Connect provider
 - Persistence: messages and translations are persisted on the file system using BuntDB, other persistence backends may
   be supported in the future
-- Buit-in translation support: dynamic message translations are fully supported by the chat server, a plugin may provide the
+- Built-in translation support: dynamic message translations are fully supported by the chat server, a plugin may provide the
   actual translation text
-- Plugins: Hashicorps' go-plugin is used to provide a generic plugin interface. Plugins can process incoming messages
+- Plugins: Hashicorps' [go-plugin](https://github.com/hashicorp/go-plugin) is used to provide a generic plugin interface. Plugins can process incoming messages
   and emit messages and/or translations based on those, or they can emit messages regularly. A translation plugin using
   the Google translate API is part of this repository (separate configuration and setup of a Google Cloud Platform
   project is required)
-- Configuration: Hashicorps' HCL is used as the configuration file language
+- Configuration: Hashicorps' [HCL](https://github.com/hashicorp/hcl) is used as the configuration file language
 
 # Roadmap
 
@@ -34,7 +34,7 @@ In order to try the chat, actually only the frontend is required.
 
 ## Chat server
 
-*Note*: Building and running has only be tested on Linux platforms using Go v1.15.
+*Note*: Building and running has only been tested on Linux platforms using Go v1.16.
 So: YMMV.
 
 Run `build-binaries-prod.sh` in the main directory. Alternatively:
@@ -158,7 +158,7 @@ plugin "google-translate" {
 }
 ```
 
-Plugins are configures in a `plugin`-block labelled with the name of the plugin.
+Plugins are configured in a `plugin`-block labelled with the name of the plugin.
 That is, the file name of the binary stripped of the leading `lightspeed-chat-` and the trailing `-plugin`.
 Each plugin defines its own configuration requirements which have to be in a `config`-block.
 
@@ -197,3 +197,9 @@ With the google translate plugin, multiple configuration files in a directory:
 # Deployment
 
 tbd
+
+# To-Do
+
+- [ ] unit tests
+- [ ] migrate fully to [hclog](https://github.com/hashicorp/go-hclog)
+- [ ] support stickers / message types other than text
