@@ -42,7 +42,18 @@ Run `build-binaries-prod.sh` in the main directory. Alternatively:
 ```shell
 cd cmd/lightspeed-chat
 go build .
+cd ../lightspeed-chat-admin
+go build .
 ```
+
+*Note to developers:*
+
+If the protobuf definition for communicating with the plugins in `proto/message.proto` has been changed, the corresponding go-files need to be regenerated:
+```shell
+go generate
+```
+
+Note that a change in the protobuf definition is likely to require code changes in the main source as well as in the plugins.
 
 ## Plugins
 
@@ -57,10 +68,11 @@ go build .
 
 ## Chat server
 
-Copy the binary `cmd/lightspeed-chat/lightspeed-chat` to a convenient location:
+Copy the binaries `cmd/lightspeed-chat/lightspeed-chat` and `cmd/lightspeed-chat-admin/lightspeed-chat-admin` to a convenient location:
 
 ```shell
 sudo cp cmd/lightspeed-chat/lightspeed-chat /usr/local/bin
+sudo cp cmd/lightspeed-chat-admin/lightspeed-chat-admin /usr/local/bin
 ```
 
 ## Plugins
@@ -194,6 +206,9 @@ With the google translate plugin, multiple configuration files in a directory:
 ./cmd/lightspeed-chat/lightspeed-chat -p plugins/lightspeed-chat-google-translate-plugin/lightspeed-chat-google-translate-plugin -c config
 ```
 
+For (limited) administration of users and rooms, `lightspeed-chat-admin` is provided.
+
+
 # Deployment
 
 tbd
@@ -201,5 +216,6 @@ tbd
 # To-Do
 
 - [ ] unit tests
+- [ ] extend the admin cli tool
 - [ ] migrate fully to [hclog](https://github.com/hashicorp/go-hclog)
 - [ ] support stickers / message types other than text

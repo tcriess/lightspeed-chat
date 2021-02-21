@@ -23,10 +23,29 @@ import (
 
 var (
 	configPath          = pflag.StringP("config", "c", "", "path to config file or directory")
-	eventHandlerPlugins = pflag.StringSliceP("plugin", "p", nil, "path to event handler plugin")
+	eventHandlerPlugins = pflag.StringSliceP("plugin", "p", nil, "path(s) to event handler plugin")
 
 	globalPlugins map[string]plugins.PluginSpec = make(map[string]plugins.PluginSpec)
 )
+
+var Usage = func() {
+	fmt.Fprintf(os.Stderr, "Usage of %s:\n", filepath.Base(os.Args[0]))
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintf(os.Stderr, "  %s [-c CONFIG] [[-p PLUGIN1] [-p PLUGIN2]...] COMMAND SUBCOMMAND\n", filepath.Base(os.Args[0]))
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Commands/subcommands:")
+	fmt.Fprintln(os.Stderr, "  show room ID")
+	fmt.Fprintln(os.Stderr, "       print the JSON room definition of the room ID")
+	fmt.Fprintln(os.Stderr, "  show user ID")
+	fmt.Fprintln(os.Stderr, "       print the JSON user definition of the user ID")
+	fmt.Fprintln(os.Stderr, "  set room")
+	fmt.Fprintln(os.Stderr, "       read a JSON room definition from STDIN and update/create the room accordingly")
+	fmt.Fprintln(os.Stderr, "  set user")
+	fmt.Fprintln(os.Stderr, "       read a JSON user definition from STDIN and update/create the user accordingly")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Options:")
+	pflag.PrintDefaults()
+}
 
 func main() {
 	c := make(chan os.Signal, 1)
@@ -38,6 +57,7 @@ func main() {
 		log.Fatal("interrupted!")
 	}()
 
+	pflag.Usage = Usage
 	pflag.Parse()
 
 	if pflag.NArg() < 2 {
