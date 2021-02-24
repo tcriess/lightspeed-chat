@@ -31,7 +31,7 @@ import (
 
 var (
 	configPath          = pflag.StringP("config", "c", "", "path to config file or directory")
-	eventHandlerPlugins = pflag.StringSliceP("plugin", "p", nil, "path to event handler plugin")
+	eventHandlerPlugins = pflag.StringSliceP("plugin", "p", nil, "path(s) to event handler plugin(s)")
 	addr                = pflag.String("addr", "localhost:8000", "ws service address (including port)")
 	sslCert             = pflag.String("ssl-cert", "", "SSL cert for websocket (optional)")
 	sslKey              = pflag.String("ssl-key", "", "SSL key for websocket (optional)")
@@ -56,8 +56,6 @@ func main() {
 
 	pflag.Parse()
 	log.SetFlags(0)
-
-	var globalConfig *config.Config
 
 	globalConfig, pluginConfigs, err := config.ReadConfiguration(*configPath)
 	if err != nil {
@@ -144,24 +142,26 @@ func main() {
 	}
 	defer plugin.CleanupClients()
 
-	// TODO: fetch from DB
-	room := types.Room{
-		Id:    "default",
-		Owner: &types.User{},
-	}
+	var rooms []*types.Room
 	if persister != nil {
-		err = persister.GetRoom(&room)
+		var err error
+		rooms, err = persister.GetRooms()
 		if err != nil {
-			err = persister.StoreRoom(room)
-			if err != nil {
-				panic(err)
-			}
+			panic(err)
 		}
+	} else {
+		room := &types.Room{
+			Id:    "default",
+			Owner: &types.User{},
+		}
+		rooms = []*types.Room{room}
 	}
 
-	hub := ws.NewHub(&room, globalConfig, persister, globalPlugins)
-	hubs["default"] = hub
-	go hub.Run()
+	for _, room := range rooms {
+		hub := ws.NewHub(room, globalConfig, persister, globalPlugins)
+		hubs[room.Id] = hub
+		go hub.Run()
+	}
 	setupRoutes()
 	// start HTTP server
 	if *sslCert != "" && *sslKey != "" {
@@ -174,7 +174,7 @@ func main() {
 
 func setupRoutes() {
 	router := mux.NewRouter()
-	router.HandleFunc("/chat/{room:[a-z0-9_-]+}", websocketHandler).Methods(http.MethodGet)
+	router.HandleFunc("/chat/{room:[a-z][a-z0-9_-]+}", websocketHandler).Methods(http.MethodGet)
 	http.Handle("/", router)
 }
 

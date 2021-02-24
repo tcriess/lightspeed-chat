@@ -41,6 +41,11 @@ func setupBuntDB(cfg *config.Config) (*buntdb.DB, error) {
 			db.Close()
 			return nil, err
 		}
+		err = db.CreateIndex("rooms", "room:*", buntdb.IndexJSON("id"))
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	return db, nil
 }
@@ -77,6 +82,23 @@ func (p *BuntDBPersist) GetUser(user *types.User) error {
 	return nil
 }
 
+func (p *BuntDBPersist) DeleteUser(user *types.User) error {
+	if user.Id == "" {
+		return fmt.Errorf("no room id")
+	}
+	err := p.db.View(func(tx *buntdb.Tx) error {
+		_, err := tx.Delete("user:" + user.Id)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (p *BuntDBPersist) StoreRoom(room types.Room) error {
 	u, err := json.Marshal(room)
 	if err != nil {
@@ -90,7 +112,7 @@ func (p *BuntDBPersist) StoreRoom(room types.Room) error {
 
 func (p *BuntDBPersist) GetRoom(room *types.Room) error {
 	if room.Id == "" {
-		return fmt.Errorf("no user id")
+		return fmt.Errorf("no room id")
 	}
 	err := p.db.View(func(tx *buntdb.Tx) error {
 		u, err := tx.Get("room:" + room.Id)
@@ -107,6 +129,42 @@ func (p *BuntDBPersist) GetRoom(room *types.Room) error {
 		return err
 	}
 	return nil
+}
+
+func (p *BuntDBPersist) DeleteRoom(room *types.Room) error {
+	if room.Id == "" {
+		return fmt.Errorf("no room id")
+	}
+	err := p.db.View(func(tx *buntdb.Tx) error {
+		_, err := tx.Delete("room:" + room.Id)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *BuntDBPersist) GetRooms() ([]*types.Room, error) {
+	rooms := make([]*types.Room, 0)
+	err := p.db.View(func(tx *buntdb.Tx) error {
+		tx.Descend("rooms", func(key, val string) bool {
+			log.Printf("got room: %s %s", key, val)
+			room := &types.Room{}
+			if err := json.Unmarshal([]byte(val), room); err == nil {
+				rooms = append(rooms, room)
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rooms, nil
 }
 
 func (p *BuntDBPersist) StoreEvents(events []*types.Event) error {

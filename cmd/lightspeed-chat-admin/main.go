@@ -23,7 +23,7 @@ import (
 
 var (
 	configPath          = pflag.StringP("config", "c", "", "path to config file or directory")
-	eventHandlerPlugins = pflag.StringSliceP("plugin", "p", nil, "path(s) to event handler plugin")
+	eventHandlerPlugins = pflag.StringSliceP("plugin", "p", nil, "path(s) to event handler plugin(s)")
 
 	globalPlugins map[string]plugins.PluginSpec = make(map[string]plugins.PluginSpec)
 )
@@ -179,6 +179,29 @@ func main() {
 			globals.AppLogger.Info("user", "user", user)
 		}
 
+	case "delete":
+		if pflag.NArg() < 3 {
+			pflag.Usage()
+			return
+		}
+		switch pflag.Arg(1) {
+		case "room":
+			room := types.Room{Id: pflag.Arg(2)}
+			err := persister.DeleteRoom(&room)
+			if err != nil {
+				globals.AppLogger.Error("could not delete room", "error", err)
+				return
+			}
+
+		case "user":
+			user := types.User{Id: pflag.Arg(2)}
+			err := persister.DeleteUser(&user)
+			if err != nil {
+				globals.AppLogger.Error("could not delete user", "error", err)
+				return
+			}
+		}
+
 	case "set":
 		dec := json.NewDecoder(os.Stdin)
 		switch pflag.Arg(1) {
@@ -199,7 +222,7 @@ func main() {
 				globals.AppLogger.Info("room does not exist, creating")
 			}
 			if room.Owner.Id == "" {
-				globals.AppLogger.Warn("no ownder set")
+				globals.AppLogger.Warn("no owner set")
 			}
 			if room.Owner.Id != "" && room.Owner.Nick == "" {
 				globals.AppLogger.Info("user id set, but no nick, try to fetch user from db")
