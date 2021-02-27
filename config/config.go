@@ -29,7 +29,8 @@ type OIDCConfig struct {
 }
 
 type BundDBConfig struct {
-	Name string `hcl:"name"`
+	GlobalName string `hcl:"global_name"`
+	RoomNameTemplate string `hcl:"room_name_template"`
 }
 
 type PersistenceConfig struct {

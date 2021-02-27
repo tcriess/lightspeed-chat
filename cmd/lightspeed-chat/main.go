@@ -201,8 +201,11 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 	userId := ""
 	vals := r.URL.Query()
+	globals.AppLogger.Debug("checking id token")
 	if idToken := vals.Get("id_token"); idToken != "" {
+		globals.AppLogger.Debug("token", "idtoken", idToken)
 		if provider := vals.Get("provider"); provider != "" {
+			log.Printf("found provider: %s", provider)
 			userId, _ = auth.Authenticate(idToken, provider, hub.Cfg)
 		}
 	}

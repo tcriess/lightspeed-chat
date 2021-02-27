@@ -87,7 +87,7 @@ func NewHub(room *types.Room, cfg *config.Config, persister persistence.Persiste
 		// TODO: refactor to events only
 		var t time.Time
 		n := time.Now().Add(time.Minute)
-		events, err := persister.GetEventHistory(t, n, 0, eventHistorySize)
+		events, err := persister.GetEventHistory(hub.Room, t, n, 0, eventHistorySize)
 		if err != nil {
 			globals.AppLogger.Error("could not load persisted events", "error", err)
 		}
@@ -324,7 +324,7 @@ func (h *Hub) Run() {
 			h.lockEventHistory.Unlock()
 
 			if h.Persister != nil {
-				err := h.Persister.StoreEvents(events)
+				err := h.Persister.StoreEvents(h.Room, events)
 				if err != nil {
 					globals.AppLogger.Error("could not persist events", "error", err)
 				}

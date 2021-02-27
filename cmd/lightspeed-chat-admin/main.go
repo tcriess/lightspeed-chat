@@ -155,12 +155,22 @@ func main() {
 
 	switch pflag.Arg(0) {
 	case "show":
-		if pflag.NArg() < 3 {
-			pflag.Usage()
-			return
-		}
 		switch pflag.Arg(1) {
+		case "rooms":
+			rooms, err := persister.GetRooms()
+			if err != nil {
+				globals.AppLogger.Error("could not get rooms", "error", err)
+				return
+			}
+			for _, room := range rooms {
+				globals.AppLogger.Info("room", "room", *room)
+			}
+
 		case "room":
+			if pflag.NArg() < 3 {
+				pflag.Usage()
+				return
+			}
 			room := types.Room{Id: pflag.Arg(2)}
 			err := persister.GetRoom(&room)
 			if err != nil {
@@ -169,7 +179,21 @@ func main() {
 			}
 			globals.AppLogger.Info("room", "room", room)
 
+		case "users":
+			users, err := persister.GetUsers()
+			if err != nil {
+				globals.AppLogger.Error("could not get users", "error", err)
+				return
+			}
+			for _, user := range users {
+				globals.AppLogger.Info("room", "user", *user)
+			}
+
 		case "user":
+			if pflag.NArg() < 3 {
+				pflag.Usage()
+				return
+			}
 			user := types.User{Id: pflag.Arg(2)}
 			err := persister.GetUser(&user)
 			if err != nil {

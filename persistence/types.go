@@ -7,10 +7,11 @@ import (
 )
 
 type Persister interface {
-	StoreEvents([]*types.Event) error
-	GetEventHistory(time.Time, time.Time, int, int) ([]*types.Event, error)
+	StoreEvents(*types.Room, []*types.Event) error
+	GetEventHistory(*types.Room, time.Time, time.Time, int, int) ([]*types.Event, error)
 	StoreUser(types.User) error
 	GetUser(*types.User) error
+	GetUsers() ([]*types.User, error)
 	DeleteUser(*types.User) error
 	StoreRoom(types.Room) error
 	GetRoom(*types.Room) error
