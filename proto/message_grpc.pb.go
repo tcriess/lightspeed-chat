@@ -249,6 +249,9 @@ var EventHandler_ServiceDesc = grpc.ServiceDesc{
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EmitEventsHelperClient interface {
 	EmitEvents(ctx context.Context, in *EmitEventsRequest, opts ...grpc.CallOption) (*EmitEventsResponse, error)
+	AuthenticateUser(ctx context.Context, in *AuthenticateUserRequest, opts ...grpc.CallOption) (*AuthenticateUserResponse, error)
+	GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error)
+	GetRoom(ctx context.Context, in *GetRoomRequest, opts ...grpc.CallOption) (*GetRoomResponse, error)
 }
 
 type emitEventsHelperClient struct {
@@ -268,11 +271,41 @@ func (c *emitEventsHelperClient) EmitEvents(ctx context.Context, in *EmitEventsR
 	return out, nil
 }
 
+func (c *emitEventsHelperClient) AuthenticateUser(ctx context.Context, in *AuthenticateUserRequest, opts ...grpc.CallOption) (*AuthenticateUserResponse, error) {
+	out := new(AuthenticateUserResponse)
+	err := c.cc.Invoke(ctx, "/proto.EmitEventsHelper/AuthenticateUser", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *emitEventsHelperClient) GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error) {
+	out := new(GetUserResponse)
+	err := c.cc.Invoke(ctx, "/proto.EmitEventsHelper/GetUser", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *emitEventsHelperClient) GetRoom(ctx context.Context, in *GetRoomRequest, opts ...grpc.CallOption) (*GetRoomResponse, error) {
+	out := new(GetRoomResponse)
+	err := c.cc.Invoke(ctx, "/proto.EmitEventsHelper/GetRoom", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EmitEventsHelperServer is the server API for EmitEventsHelper service.
 // All implementations must embed UnimplementedEmitEventsHelperServer
 // for forward compatibility
 type EmitEventsHelperServer interface {
 	EmitEvents(context.Context, *EmitEventsRequest) (*EmitEventsResponse, error)
+	AuthenticateUser(context.Context, *AuthenticateUserRequest) (*AuthenticateUserResponse, error)
+	GetUser(context.Context, *GetUserRequest) (*GetUserResponse, error)
+	GetRoom(context.Context, *GetRoomRequest) (*GetRoomResponse, error)
 	mustEmbedUnimplementedEmitEventsHelperServer()
 }
 
@@ -282,6 +315,15 @@ type UnimplementedEmitEventsHelperServer struct {
 
 func (UnimplementedEmitEventsHelperServer) EmitEvents(context.Context, *EmitEventsRequest) (*EmitEventsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EmitEvents not implemented")
+}
+func (UnimplementedEmitEventsHelperServer) AuthenticateUser(context.Context, *AuthenticateUserRequest) (*AuthenticateUserResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AuthenticateUser not implemented")
+}
+func (UnimplementedEmitEventsHelperServer) GetUser(context.Context, *GetUserRequest) (*GetUserResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUser not implemented")
+}
+func (UnimplementedEmitEventsHelperServer) GetRoom(context.Context, *GetRoomRequest) (*GetRoomResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoom not implemented")
 }
 func (UnimplementedEmitEventsHelperServer) mustEmbedUnimplementedEmitEventsHelperServer() {}
 
@@ -314,6 +356,60 @@ func _EmitEventsHelper_EmitEvents_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EmitEventsHelper_AuthenticateUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthenticateUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EmitEventsHelperServer).AuthenticateUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/proto.EmitEventsHelper/AuthenticateUser",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EmitEventsHelperServer).AuthenticateUser(ctx, req.(*AuthenticateUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EmitEventsHelper_GetUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EmitEventsHelperServer).GetUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/proto.EmitEventsHelper/GetUser",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EmitEventsHelperServer).GetUser(ctx, req.(*GetUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EmitEventsHelper_GetRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRoomRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EmitEventsHelperServer).GetRoom(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/proto.EmitEventsHelper/GetRoom",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EmitEventsHelperServer).GetRoom(ctx, req.(*GetRoomRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EmitEventsHelper_ServiceDesc is the grpc.ServiceDesc for EmitEventsHelper service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -324,6 +420,18 @@ var EmitEventsHelper_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "EmitEvents",
 			Handler:    _EmitEventsHelper_EmitEvents_Handler,
+		},
+		{
+			MethodName: "AuthenticateUser",
+			Handler:    _EmitEventsHelper_AuthenticateUser_Handler,
+		},
+		{
+			MethodName: "GetUser",
+			Handler:    _EmitEventsHelper_GetUser_Handler,
+		},
+		{
+			MethodName: "GetRoom",
+			Handler:    _EmitEventsHelper_GetRoom_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

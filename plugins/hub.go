@@ -29,6 +29,9 @@ var PluginMap = map[string]plugin.Plugin{
 
 type EmitEventsHelper interface {
 	EmitEvents([]*types.Event) error
+	AuthenticateUser(string, string) (*types.User, error)
+	GetUser(string) (*types.User, error)
+	GetRoom(string) (*types.Room, error)
 }
 
 // KV is the interface that we're exposing as a plugin.

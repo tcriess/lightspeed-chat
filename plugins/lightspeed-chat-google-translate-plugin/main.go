@@ -83,7 +83,7 @@ func (m *EventHandler) HandleEvents(events []*types.Event) ([]*types.Event, erro
 					"message":   res[0],
 					"source_id": event.Id,
 				}
-				outEvent := types.NewEvent(event.Room, source, filter, isoLang, types.EventTypeTranslation, tags, nil)
+				outEvent := types.NewEvent(event.Room, source, filter, isoLang, types.EventTypeTranslation, tags)
 				outEvents = append(outEvents, outEvent)
 			}
 		}
@@ -164,7 +164,7 @@ func (m *EventHandler) Cron(room *types.Room) ([]*types.Event, error) {
 		User:       &types.User{Nick: translatorNick},
 		PluginName: pluginName,
 	}
-	event := types.NewEvent(room, source, "", translatorTextLanguage, types.EventTypeChat, tags, nil)
+	event := types.NewEvent(room, source, "", translatorTextLanguage, types.EventTypeChat, tags)
 	events := []*types.Event{event}
 	outEvents, err := m.HandleEvents(events)
 	if err != nil {

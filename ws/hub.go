@@ -84,7 +84,6 @@ func NewHub(room *types.Room, cfg *config.Config, persister persistence.Persiste
 		pluginMap:         pluginMap,
 	}
 	if persister != nil {
-		// TODO: refactor to events only
 		var t time.Time
 		n := time.Now().Add(time.Minute)
 		events, err := persister.GetEventHistory(hub.Room, t, n, 0, eventHistorySize)
@@ -130,6 +129,7 @@ func (h *Hub) NoClients() int {
 
 func (h *Hub) handlePlugins(events []*types.Event, skipPlugins map[string]struct{}) error {
 	log.Printf("in handlePlugins, skipPlugins=%+v", skipPlugins)
+
 	for pluginName, plg := range h.pluginMap {
 		if _, ok := skipPlugins[pluginName]; ok {
 			continue
@@ -266,7 +266,7 @@ func (h *Hub) Run() {
 					close(client.Send)
 					close(client.SendEvents)
 					log.Println("close plugin channel")
-					close(client.pluginChan)
+					close(client.PluginChan)
 					log.Println("broadcast new room info")
 					go h.SendInfo(h.GetInfo()) // this way the number of clients does not change between calling the goroutine and executing it
 				} else {
@@ -276,6 +276,9 @@ func (h *Hub) Run() {
 
 		case events := <-h.BroadcastEvents:
 			for i, event := range events {
+				if event.Name == types.EventTypeInternal {
+					continue
+				}
 				var prog *vm.Program
 				if event.TargetFilter != "" {
 					var err error
@@ -287,7 +290,6 @@ func (h *Hub) Run() {
 				globals.AppLogger.Debug("checking event", "event", event)
 				go func(evt *types.Event, prg *vm.Program) {
 					var wg sync.WaitGroup
-					globals.AppLogger.Debug("checking event", "event", event, "evt (in goroutine)", evt)
 					h.RLock()
 					for client := range h.clients {
 						if !client.RunFilterEvent(evt, prg) {
@@ -359,7 +361,7 @@ func (h *Hub) GetInfo() *types.Event {
 	source := &types.Source{
 		PluginName: "main",
 	}
-	return types.NewEvent(h.Room, source, "", "", types.EventTypeInfo, tags, nil)
+	return types.NewEvent(h.Room, source, "", "", types.EventTypeInfo, tags)
 }
 
 // SendInfo broadcasts hub statistics to all clients.

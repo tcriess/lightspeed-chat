@@ -37,7 +37,7 @@ type Client struct {
 
 	user *types.User
 
-	pluginChan chan []*types.Event
+	PluginChan chan []*types.Event
 	doneChan   chan struct{}
 
 	// WaitGroup which keeps track of running read/write loops and write access to Send. If the WaitGroup is done,
@@ -61,7 +61,7 @@ func NewClient(hub *Hub, conn *websocket.Conn, user *types.User, language string
 		user:       user,
 		Language:   lang,
 		doneChan:   doneChan,
-		pluginChan: make(chan []*types.Event, pluginChannelSize),
+		PluginChan: make(chan []*types.Event, pluginChannelSize),
 	}
 }
 
@@ -133,13 +133,13 @@ func (c *Client) ReadLoop() {
 				"mime_type": "text/plain",
 			}
 			if !strings.HasPrefix(chatMsg.Message, "/") {
-				event := types.NewEvent(c.hub.Room, source, chatMsg.Filter, chatMsg.Language, types.EventTypeChat, tags, nil)
+				event := types.NewEvent(c.hub.Room, source, chatMsg.Filter, chatMsg.Language, types.EventTypeChat, tags)
 				events := []*types.Event{event}
 				c.hub.EventHistory <- events
 				c.hub.BroadcastEvents <- events
 				c.hub.RLock()
 				if _, ok := c.hub.clients[c]; ok {
-					c.pluginChan <- events
+					c.PluginChan <- events
 				}
 				c.hub.RUnlock()
 			} else {
@@ -157,12 +157,12 @@ func (c *Client) ReadLoop() {
 				}
 				tags["command"] = fields[0]
 				tags["args"] = args
-				cmdEvent := types.NewEvent(c.hub.Room, source, filter, chatMsg.Language, types.EventTypeCommand, tags, nil)
+				cmdEvent := types.NewEvent(c.hub.Room, source, filter, chatMsg.Language, types.EventTypeCommand, tags)
 				events := []*types.Event{cmdEvent}
 				c.hub.RLock()
 				if _, ok := c.hub.clients[c]; ok {
 					c.SendEvents <- events
-					c.pluginChan <- events
+					c.PluginChan <- events
 				}
 				c.hub.RUnlock()
 			}
@@ -179,7 +179,6 @@ func (c *Client) ReadLoop() {
 				TargetFilter string            `mapstructure:"target_filter"`
 				Language     string            `mapstructure:"language"`
 				Tags         map[string]string `mapstructure:"tags"`
-				IntTags      map[string]int64  `mapstructure:"int_tags"`
 			}{}
 			err = mapstructure.WeakDecode(msgMap, &msg)
 			if err != nil {
@@ -188,22 +187,21 @@ func (c *Client) ReadLoop() {
 			}
 			source := &types.Source{
 				User: &types.User{
-					Id:         c.user.Id,
-					Nick:       c.user.Nick,
-					Language:   c.user.Language,
-					Tags:       c.user.Tags,
-					IntTags:    c.user.IntTags,
+					Id:       c.user.Id,
+					Nick:     c.user.Nick,
+					Language: c.user.Language,
+					Tags:     c.user.Tags,
 					LastOnline: c.user.LastOnline,
 				},
 				PluginName: "",
 			}
-			event := types.NewEvent(c.hub.Room, source, msg.TargetFilter, msg.Language, message.Event, msg.Tags, msg.IntTags)
+			event := types.NewEvent(c.hub.Room, source, msg.TargetFilter, msg.Language, message.Event, msg.Tags)
 			events := []*types.Event{event}
 			c.hub.EventHistory <- events
 			c.hub.BroadcastEvents <- events
 			c.hub.RLock()
 			if _, ok := c.hub.clients[c]; ok {
-				c.pluginChan <- events
+				c.PluginChan <- events
 			}
 			c.hub.RUnlock()
 		}
@@ -314,7 +312,7 @@ func (c *Client) WriteLoop() {
 	}
 }
 
-// A per-client plugin loop. Reads the pluginChan and calls per-client plugins. Will be exited when the pluginChan is closed.
+// A per-client plugin loop. Reads the PluginChan and calls per-client plugins. Will be exited when the PluginChan is closed.
 func (c *Client) PluginLoop() {
 	for {
 		select {
@@ -325,9 +323,9 @@ func (c *Client) PluginLoop() {
 		default:
 		}
 		select {
-		case events, ok := <-c.pluginChan:
+		case events, ok := <-c.PluginChan:
 			if !ok {
-				log.Println("info: pluginChan closed, exiting client plugin loop")
+				log.Println("info: PluginChan closed, exiting client plugin loop")
 				return
 			}
 			skipPlugins := make(map[string]struct{})

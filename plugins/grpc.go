@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/hcl/v2/hcldec"
+	"github.com/tcriess/lightspeed-chat/globals"
 	"github.com/tcriess/lightspeed-chat/proto"
 	"github.com/tcriess/lightspeed-chat/types"
 	"github.com/zclconf/go-cty/cty"
@@ -34,7 +35,6 @@ func eventNative2Proto(inEvent *types.Event) *proto.Event {
 		Language:     inEvent.Language,
 		Name:         inEvent.Name,
 		Tags:         inEvent.Tags,
-		IntTags:      inEvent.IntTags,
 		Sent:         inEvent.Sent.Unix(),
 		TargetFilter: inEvent.TargetFilter,
 		History:      inEvent.History,
@@ -55,7 +55,6 @@ func eventProto2Native(inEvent *proto.Event) *types.Event {
 		Language:     inEvent.Language,
 		Name:         inEvent.Name,
 		Tags:         inEvent.Tags,
-		IntTags:      inEvent.IntTags,
 		Sent:         time.Unix(inEvent.Sent, 0).In(time.UTC),
 		TargetFilter: inEvent.TargetFilter,
 		History:      inEvent.History,
@@ -70,7 +69,6 @@ func userNative2Proto(inUser *types.User) *proto.User {
 		Nick:       inUser.Nick,
 		Language:   inUser.Language,
 		Tags:       inUser.Tags,
-		IntTags:    inUser.IntTags,
 		LastOnline: inUser.LastOnline.Unix(),
 	}
 
@@ -83,7 +81,6 @@ func userProto2Native(inUser *proto.User) *types.User {
 		Nick:       inUser.Nick,
 		Language:   inUser.Language,
 		Tags:       inUser.Tags,
-		IntTags:    inUser.IntTags,
 		LastOnline: time.Unix(inUser.LastOnline, 0).In(time.UTC),
 	}
 
@@ -94,8 +91,9 @@ func roomNative2Proto(inRoom *types.Room) *proto.Room {
 	outRoom := &proto.Room{
 		Id:    inRoom.Id,
 		Owner: userNative2Proto(inRoom.Owner),
+		Tags:  inRoom.Tags,
 	}
-
+	globals.AppLogger.Debug("converted native to proto:", "native", *inRoom, "proto", *outRoom)
 	return outRoom
 }
 
@@ -103,8 +101,9 @@ func roomProto2Native(inRoom *proto.Room) *types.Room {
 	outRoom := &types.Room{
 		Id:    inRoom.Id,
 		Owner: userProto2Native(inRoom.Owner),
+		Tags:  inRoom.Tags,
 	}
-
+	globals.AppLogger.Debug("converted proto to native:", "proto", *inRoom, "native", *outRoom)
 	return outRoom
 }
 
@@ -308,6 +307,40 @@ func (c *GRPCEmitEventsHelperClient) EmitEvents(events []*types.Event) error {
 	return nil
 }
 
+func (c *GRPCEmitEventsHelperClient) AuthenticateUser(idToken, provider string) (*types.User, error) {
+	req := &proto.AuthenticateUserRequest{
+		IdToken:  idToken,
+		Provider: provider,
+	}
+	resp, err := c.client.AuthenticateUser(context.Background(), req)
+	if err != nil {
+		return nil, err
+	}
+	return userProto2Native(resp.User), nil
+}
+
+func (c *GRPCEmitEventsHelperClient) GetUser(userId string) (*types.User, error) {
+	req := &proto.GetUserRequest{
+		UserId: userId,
+	}
+	resp, err := c.client.GetUser(context.Background(), req)
+	if err != nil {
+		return nil, err
+	}
+	return userProto2Native(resp.User), nil
+}
+
+func (c *GRPCEmitEventsHelperClient) GetRoom(roomId string) (*types.Room, error) {
+	req := &proto.GetRoomRequest{
+		RoomId: roomId,
+	}
+	resp, err := c.client.GetRoom(context.Background(), req)
+	if err != nil {
+		return nil, err
+	}
+	return roomProto2Native(resp.Room), nil
+}
+
 type GRPCEmitEventsHelperServer struct {
 	proto.UnimplementedEmitEventsHelperServer
 
@@ -325,4 +358,28 @@ func (s *GRPCEmitEventsHelperServer) EmitEvents(ctx context.Context, req *proto.
 		return nil, err
 	}
 	return &proto.EmitEventsResponse{}, nil
+}
+
+func (s *GRPCEmitEventsHelperServer) AuthenticateUser(ctx context.Context, req *proto.AuthenticateUserRequest) (resp *proto.AuthenticateUserResponse, err error) {
+	user, err := s.Impl.AuthenticateUser(req.IdToken, req.Provider)
+	if err != nil {
+		return nil, err
+	}
+	return &proto.AuthenticateUserResponse{User: userNative2Proto(user)}, nil
+}
+
+func (s *GRPCEmitEventsHelperServer) GetUser(ctx context.Context, req *proto.GetUserRequest) (resp *proto.GetUserResponse, err error) {
+	user, err := s.Impl.GetUser(req.UserId)
+	if err != nil {
+		return nil, err
+	}
+	return &proto.GetUserResponse{User: userNative2Proto(user)}, nil
+}
+
+func (s *GRPCEmitEventsHelperServer) GetRoom(ctx context.Context, req *proto.GetRoomRequest) (resp *proto.GetRoomResponse, err error) {
+	room, err := s.Impl.GetRoom(req.RoomId)
+	if err != nil {
+		return nil, err
+	}
+	return &proto.GetRoomResponse{Room: roomNative2Proto(room)}, nil
 }

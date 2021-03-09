@@ -38,6 +38,7 @@ message CronResponse {
 message Room {
     string id = 1;
     User owner = 2;
+    map<string,string> tags = 3;
 }
 
 message User {
@@ -45,8 +46,7 @@ message User {
     string nick = 2;
     string language = 3;
     map<string,string> tags = 4;
-    map<string,int64> int_tags = 5;
-    int64 last_online = 6;
+    int64 last_online = 5;
 }
 
 message Source {
@@ -62,10 +62,9 @@ message Event {
     string language = 5;
     string name = 6;
     map<string,string> tags = 7;
-    map<string,int64> int_tags = 8;
-    int64 sent = 9;
-    string target_filter = 10;
-    bool history = 11;
+    int64 sent = 8;
+    string target_filter = 9;
+    bool history = 10;
 }
 
 message HandleEventsRequest {
@@ -99,6 +98,34 @@ message EmitEventsRequest {
 message EmitEventsResponse {
 }
 
+message AuthenticateUserRequest {
+    string id_token = 1;
+    string provider = 2;
+}
+
+message AuthenticateUserResponse {
+    User user = 1;
+}
+
+message GetUserRequest {
+    string user_id = 1;
+}
+
+message GetUserResponse {
+    User user = 1;
+}
+
+message GetRoomRequest {
+    string room_id = 1;
+}
+
+message GetRoomResponse {
+    Room room = 1;
+}
+
 service EmitEventsHelper {
     rpc EmitEvents (EmitEventsRequest) returns (EmitEventsResponse);
+    rpc AuthenticateUser (AuthenticateUserRequest) returns (AuthenticateUserResponse);
+    rpc GetUser (GetUserRequest) returns (GetUserResponse);
+    rpc GetRoom (GetRoomRequest) returns (GetRoomResponse);
 }

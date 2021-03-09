@@ -75,13 +75,11 @@ func main() {
 	}
 
 	eventHandlers := make([]plugins.EventHandler, 0)
-	for _, mhp := range *eventHandlerPlugins {
+	for _, ehp := range *eventHandlerPlugins {
 		pluginClient := plugin.NewClient(&plugin.ClientConfig{
-			HandshakeConfig: plugins.Handshake,
-			Plugins:         plugins.PluginMap,
-			Cmd:             exec.Command("sh", "-c", mhp),
-			//AllowedProtocols: []plugin.Protocol{
-			//	plugin.ProtocolNetRPC, plugin.ProtocolGRPC},
+			HandshakeConfig:  plugins.Handshake,
+			Plugins:          plugins.PluginMap,
+			Cmd:              exec.Command("sh", "-c", ehp),
 			AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
 			Managed:          true,
 		})
@@ -103,7 +101,7 @@ func main() {
 		eventHandler := raw.(plugins.EventHandler)
 		eventHandlers = append(eventHandlers, eventHandler)
 
-		pluginName := filepath.Base(mhp)
+		pluginName := filepath.Base(ehp)
 		if strings.HasPrefix(pluginName, "lightspeed-chat-") {
 			pluginName = pluginName[len("lightspeed-chat-"):]
 		}
@@ -118,23 +116,19 @@ func main() {
 			Name:   pluginName,
 			Plugin: eventHandler,
 		}
-		log.Printf("pluginName: %s", pluginName)
+		globals.AppLogger.Debug("pluginName", "pluginName", pluginName)
 		if cfg, ok := pluginConfigs[pluginName]; ok {
-			log.Printf("found config: %+v", cfg)
+			globals.AppLogger.Debug("found config", "config", cfg)
 			spec, err := eventHandler.GetSpec()
 			if err != nil {
 				panic(fmt.Sprintf("could not get plugin config spec: %s", err))
 			}
-			log.Printf("spec: %+v", spec)
-			val, diag := hcldec.Decode(cfg, spec, nil)
-			log.Printf("val: %+v diag: %+v", val, diag)
-			log.Println(val.GoString())
+			globals.AppLogger.Debug("spec", "spec", spec)
+			val, _ := hcldec.Decode(cfg, spec, nil)
 			cronSpec, eventFilter, err := eventHandler.Configure(val)
 			if err != nil {
 				panic(fmt.Sprintf("could not configure plugin %s: %s", pluginName, err))
 			}
-			log.Printf("got cronspec from plugin: %s", cronSpec)
-			log.Printf("got eventFilter from plugin: %s", eventFilter)
 			pluginSpec.CronSpec = cronSpec
 			pluginSpec.EventFilter = eventFilter
 		}
@@ -149,15 +143,30 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+		if len(rooms) == 0 {
+			// no room in the db, create a default room
+			room := &types.Room{
+				Id:    "default",
+				Owner: &types.User{},
+				Tags:  make(map[string]string),
+			}
+			err := persister.StoreRoom(*room)
+			if err != nil {
+				panic(err)
+			}
+			rooms = []*types.Room{room}
+		}
 	} else {
 		room := &types.Room{
 			Id:    "default",
 			Owner: &types.User{},
+			Tags:  make(map[string]string),
 		}
 		rooms = []*types.Room{room}
 	}
 
 	for _, room := range rooms {
+		globals.AppLogger.Debug("creating room", "room", *room)
 		hub := ws.NewHub(room, globalConfig, persister, globalPlugins)
 		hubs[room.Id] = hub
 		go hub.Run()
@@ -180,7 +189,7 @@ func setupRoutes() {
 
 // Handle incoming websockets
 func websocketHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("info: in websocketHandler")
+	globals.AppLogger.Info("in websocketHandler")
 
 	vars := mux.Vars(r)
 	roomName := vars["room"]
@@ -188,6 +197,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	globals.AppLogger.Debug("looking for room", "room", roomName)
 	var hub *ws.Hub
 	hubsLock.RLock()
 	if h, ok := hubs[roomName]; !ok {
@@ -198,6 +208,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 		hubsLock.RUnlock()
 		hub = h
 	}
+	globals.AppLogger.Debug("found room!")
 
 	userId := ""
 	vals := r.URL.Query()
@@ -205,7 +216,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	if idToken := vals.Get("id_token"); idToken != "" {
 		globals.AppLogger.Debug("token", "idtoken", idToken)
 		if provider := vals.Get("provider"); provider != "" {
-			log.Printf("found provider: %s", provider)
+			globals.AppLogger.Debug("found oidc provider", "provider", provider)
 			userId, _ = auth.Authenticate(idToken, provider, hub.Cfg)
 		}
 	}
@@ -214,7 +225,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	// Upgrade HTTP request to Websocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Print("upgrade:", err)
+		globals.AppLogger.Error("websocket upgrade error", "error", err)
 		return
 	}
 
@@ -233,7 +244,6 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 		Nick:       nick,
 		Language:   "",
 		Tags:       make(map[string]string),
-		IntTags:    make(map[string]int64),
 		LastOnline: time.Time{},
 	}
 	if userId != "" && hub.Persister != nil {
@@ -248,7 +258,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			if err != nil {
-				log.Printf("error: could not get user: %s", err)
+				globals.AppLogger.Error("could not get user", "error", err)
 				return
 			}
 			nick = user.Nick
@@ -259,12 +269,16 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Add to the hub
 	c.Add(1)
+	globals.AppLogger.Debug("about to register")
 	hub.Register <- c
+	globals.AppLogger.Debug("put client in register chan")
 	// actually, it is not guaranteed that the client really _is_ registered at this point, as the read-out of the hub's
 	// register channel happens asynchronously.
 	// maybe we should wait here for the client to be actually registered, so the following broadcast calls
 	// also reach the new client
+	globals.AppLogger.Debug("waiting for client to actually register")
 	c.Wait()
+	globals.AppLogger.Debug("client registered")
 	defer func() {
 		hub.Unregister <- c
 	}()
@@ -280,17 +294,23 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	tags := map[string]string{
 		"action": "login",
 	}
-	userEvent := types.NewEvent(hub.Room, source, "", "", types.EventTypeUser, tags, nil)
+	userEvent := types.NewEvent(hub.Room, source, "", "", types.EventTypeUser, tags)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(3)
+	wg.Add(4)
 	go func(evt *types.Event, wg *sync.WaitGroup) {
 		defer wg.Done()
 		hub.BroadcastEvents <- []*types.Event{evt}
 	}(userEvent, wg)
+	go func(evt *types.Event, wg *sync.WaitGroup) {
+		defer wg.Done()
+		c.PluginChan <- []*types.Event{evt}
+	}(userEvent, wg)
 	go c.SendHistory(hub.GetHistory(), wg)
 	// make sure those 3 are done before closing the send channel
+	globals.AppLogger.Debug("wait for client wg chan")
 	wg.Wait()
+	globals.AppLogger.Debug("done waiting for client wg chan, waiting for doneChan")
 	<-doneChan
-	log.Println("info: doneChan closed, exiting ws handler")
+	globals.AppLogger.Info("doneChan closed, exiting ws handler")
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"text/template"
 	"time"
 
@@ -15,41 +16,62 @@ import (
 )
 
 type BuntDBPersist struct {
-	db      *buntdb.DB
-	roomDbs map[string]*buntdb.DB
+	db                     *buntdb.DB
+	roomDbs                map[string]*buntdb.DB
+	roomDbFileNameTemplate *template.Template
+	sync.RWMutex
 }
 
 func NewBuntPersister(cfg *config.Config) (Persister, error) {
-	db, roomDbs, err := setupBuntDB(cfg)
+	db, roomDbs, t, err := setupBuntDB(cfg)
 	if err != nil {
 		return nil, err
 	}
 	if db == nil {
 		return nil, nil // no or wrong configuration, ignore the persister
 	}
-	return &BuntDBPersist{db: db, roomDbs: roomDbs}, nil
+	return &BuntDBPersist{db: db, roomDbs: roomDbs, roomDbFileNameTemplate: t}, nil
 }
 
-func setupBuntDB(cfg *config.Config) (*buntdb.DB, map[string]*buntdb.DB, error) {
+func getRoomDbName(room *types.Room, t *template.Template) (string, error) {
+	def := struct {
+		RoomId string
+	}{
+		RoomId: room.Id,
+	}
+	buf := &bytes.Buffer{}
+	err := t.Execute(buf, def)
+	if err != nil {
+		return "", err
+	}
+	fileName := buf.String()
+	if fileName == "" {
+		return "", fmt.Errorf("room file name empty")
+	}
+	return fileName, nil
+}
+
+func setupBuntDB(cfg *config.Config) (*buntdb.DB, map[string]*buntdb.DB, *template.Template, error) {
 	var db *buntdb.DB
 	roomDbs := make(map[string]*buntdb.DB)
+	var t *template.Template
 	if cfg.PersistenceConfig != nil && cfg.PersistenceConfig.BuntDBConfig != nil && cfg.PersistenceConfig.BuntDBConfig.GlobalName != "" && cfg.PersistenceConfig.BuntDBConfig.RoomNameTemplate != "" {
 		fileName := cfg.PersistenceConfig.BuntDBConfig.GlobalName
 		var err error
 		db, err = buntdb.Open(fileName)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		err = db.CreateIndex("rooms", "room:*", buntdb.IndexJSON("id"))
 		if err != nil {
 			db.Close()
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		err = db.CreateIndex("users", "user:*", buntdb.IndexJSON("id"))
 		if err != nil {
 			db.Close()
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		rooms := make([]*types.Room, 0)
 		db.View(func(tx *buntdb.Tx) error {
@@ -62,38 +84,31 @@ func setupBuntDB(cfg *config.Config) (*buntdb.DB, map[string]*buntdb.DB, error) 
 			})
 			return nil
 		})
-		t := template.Must(template.New("room_db").Parse(cfg.PersistenceConfig.BuntDBConfig.RoomNameTemplate))
+		t = template.Must(template.New("room_db").Parse(cfg.PersistenceConfig.BuntDBConfig.RoomNameTemplate))
 		for _, room := range rooms {
 			if room.Id == "" {
 				continue
 			}
-			def := struct {
-				RoomId string
-			}{
-				RoomId: room.Id,
-			}
-			buf := &bytes.Buffer{}
-			err = t.Execute(buf, def)
+			fileName, err := getRoomDbName(room, t)
 			if err != nil {
-				return nil, nil, err
-			}
-			fileName := buf.String()
-			if fileName == "" {
-				return nil, nil, fmt.Errorf("room file name empty")
+				return nil, nil, nil, err
 			}
 			roomDb, err := buntdb.Open(fileName)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			err = roomDb.CreateIndex("eventsts", "event:*", buntdb.IndexJSON("created"))
 			if err != nil {
 				db.Close()
-				return nil, nil, err
+				for _, rDb := range roomDbs {
+					rDb.Close()
+				}
+				return nil, nil, nil, err
 			}
 			roomDbs[room.Id] = roomDb
 		}
 	}
-	return db, roomDbs, nil
+	return db, roomDbs, t, nil
 }
 
 func (p *BuntDBPersist) StoreUser(user types.User) error {
@@ -169,10 +184,74 @@ func (p *BuntDBPersist) StoreRoom(room types.Room) error {
 	if err != nil {
 		return err
 	}
-	return p.db.Update(func(tx *buntdb.Tx) error {
-		_, _, err := tx.Set("room:"+room.Id, string(u), nil)
-		return err
+
+	p.Lock()
+	defer p.Unlock()
+
+	replaced := true
+	oldVal := ""
+	err = p.db.Update(func(tx *buntdb.Tx) error {
+		var err error
+		oldVal, replaced, err = tx.Set("room:"+room.Id, string(u), nil)
+		if err != nil {
+			return err
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if _, ok := p.roomDbs[room.Id]; !replaced || !ok {
+		// created new room, also create the db and add it to the map of dbs here
+		fileName, err := getRoomDbName(&room, p.roomDbFileNameTemplate)
+		if err != nil {
+			if replaced {
+				p.db.Update(func(tx *buntdb.Tx) error {
+					_, _, err := tx.Set("room:"+room.Id, oldVal, nil)
+					return err
+				})
+			} else {
+				p.db.Update(func(tx *buntdb.Tx) error {
+					_, err := tx.Delete("room:" + room.Id)
+					return err
+				})
+			}
+			return err
+		}
+		roomDb, err := buntdb.Open(fileName)
+		if err != nil {
+			if replaced {
+				p.db.Update(func(tx *buntdb.Tx) error {
+					_, _, err := tx.Set("room:"+room.Id, oldVal, nil)
+					return err
+				})
+			} else {
+				p.db.Update(func(tx *buntdb.Tx) error {
+					_, err := tx.Delete("room:" + room.Id)
+					return err
+				})
+			}
+			return err
+		}
+		err = roomDb.CreateIndex("eventsts", "event:*", buntdb.IndexJSON("created"))
+		if err != nil {
+			roomDb.Close()
+			if replaced {
+				p.db.Update(func(tx *buntdb.Tx) error {
+					_, _, err := tx.Set("room:"+room.Id, oldVal, nil)
+					return err
+				})
+			} else {
+				p.db.Update(func(tx *buntdb.Tx) error {
+					_, err := tx.Delete("room:" + room.Id)
+					return err
+				})
+			}
+			return err
+		}
+		p.roomDbs[room.Id] = roomDb
+	}
+	return nil
 }
 
 func (p *BuntDBPersist) GetRoom(room *types.Room) error {
@@ -200,16 +279,27 @@ func (p *BuntDBPersist) DeleteRoom(room *types.Room) error {
 	if room.Id == "" {
 		return fmt.Errorf("no room id")
 	}
-	err := p.db.View(func(tx *buntdb.Tx) error {
-		_, err := tx.Delete("room:" + room.Id)
+
+	p.Lock()
+	defer p.Unlock()
+
+	oldVal := ""
+	err := p.db.Update(func(tx *buntdb.Tx) error {
+		var err error
+		oldVal, err = tx.Delete("room:" + room.Id)
 		if err != nil {
 			return err
 		}
 		return nil
 	})
 	if err != nil {
+		p.db.Update(func(tx *buntdb.Tx) error {
+			_, _, err := tx.Set("room:"+room.Id, oldVal, nil)
+			return err
+		})
 		return err
 	}
+	delete(p.roomDbs, "room:"+room.Id)
 	return nil
 }
 
@@ -239,6 +329,10 @@ func (p *BuntDBPersist) StoreEvents(room *types.Room, events []*types.Event) err
 	if room == nil {
 		return fmt.Errorf("no room")
 	}
+
+	p.RLock()
+	defer p.RUnlock()
+
 	if roomDb, ok := p.roomDbs[room.Id]; ok {
 		return roomDb.Update(func(tx *buntdb.Tx) error {
 			for _, event := range events {
@@ -273,6 +367,9 @@ func (p *BuntDBPersist) GetEventHistory(room *types.Room, fromTs, toTs time.Time
 
 	fromCond := fmt.Sprintf(`{"created":"%s"}`, fromTs.In(time.UTC).Format(time.RFC3339))
 	toCond := fmt.Sprintf(`{"created":"%s"}`, toTs.In(time.UTC).Format(time.RFC3339))
+
+	p.RLock()
+	defer p.RUnlock()
 
 	if roomDb, ok := p.roomDbs[room.Id]; ok {
 		err := roomDb.View(func(tx *buntdb.Tx) error {

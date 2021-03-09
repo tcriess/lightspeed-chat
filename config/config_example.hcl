@@ -9,6 +9,7 @@ history {
 
 persistence {
   buntdb {
-    name = "default.buntdb"
+    global_name = "default.buntdb"
+    room_name_template = "room_{{ .RoomId }}.buntdb"
   }
 }

@@ -37,18 +37,17 @@ func (c *Client) RunFilterEvent(event *types.Event, prog *vm.Program) bool {
 				Id:         c.hub.Room.Owner.Id,
 				Nick:       c.hub.Room.Owner.Nick,
 				Language:   c.hub.Room.Owner.Language,
-				Tags:       c.hub.Room.Owner.Tags,
-				IntTags:    c.hub.Room.Owner.IntTags,
+				Tags:       filter.Map2tags(c.hub.Room.Owner.Tags),
 				LastOnline: c.hub.Room.Owner.LastOnline.Unix(),
 			},
+			Tags: filter.Map2tags(c.hub.Room.Tags),
 		},
 		Source: filter.Source{
 			User: filter.User{
 				Id:         event.Source.User.Id,
 				Nick:       event.Source.User.Nick,
 				Language:   event.Source.User.Language,
-				Tags:       event.Source.User.Tags,
-				IntTags:    event.Source.User.IntTags,
+				Tags:       filter.Map2tags(event.Source.User.Tags),
 				LastOnline: event.Source.User.LastOnline.Unix(),
 			},
 			PluginName: event.Source.PluginName,
@@ -58,8 +57,7 @@ func (c *Client) RunFilterEvent(event *types.Event, prog *vm.Program) bool {
 				Id:         c.user.Id,
 				Nick:       c.user.Nick,
 				Language:   c.user.Language,
-				Tags:       c.user.Tags,
-				IntTags:    c.user.IntTags,
+				Tags:       filter.Map2tags(c.user.Tags),
 				LastOnline: c.user.LastOnline.Unix(),
 			},
 			Client: filter.Client{
@@ -69,8 +67,7 @@ func (c *Client) RunFilterEvent(event *types.Event, prog *vm.Program) bool {
 		Created:  event.Created.Unix(),
 		Language: event.Language,
 		Name:     event.Name,
-		Tags:     event.Tags,
-		IntTags:  event.IntTags,
+		Tags:     filter.Map2tags(event.Tags),
 	}
 	globals.AppLogger.Debug("running filter", "env.Target.Client.ClientLanguage", env.Client.ClientLanguage, "event.Language", event.Language, "env", env, "event", event)
 	res, err := expr.Run(prog, env)
@@ -112,18 +109,17 @@ func (h *Hub) RunPluginFilterEvent(event *types.Event, prog *vm.Program) bool {
 				Id:         h.Room.Owner.Id,
 				Nick:       h.Room.Owner.Nick,
 				Language:   h.Room.Owner.Language,
-				Tags:       h.Room.Owner.Tags,
-				IntTags:    h.Room.Owner.IntTags,
+				Tags:       filter.Map2tags(h.Room.Owner.Tags),
 				LastOnline: h.Room.Owner.LastOnline.Unix(),
 			},
+			Tags: filter.Map2tags(h.Room.Tags),
 		},
 		Source: filter.Source{
 			User: filter.User{
 				Id:         event.Source.User.Id,
 				Nick:       event.Source.User.Nick,
 				Language:   event.Source.User.Language,
-				Tags:       event.Source.User.Tags,
-				IntTags:    event.Source.User.IntTags,
+				Tags:       filter.Map2tags(event.Source.User.Tags),
 				LastOnline: event.Source.User.LastOnline.Unix(),
 			},
 			PluginName: event.Source.PluginName,
@@ -135,8 +131,7 @@ func (h *Hub) RunPluginFilterEvent(event *types.Event, prog *vm.Program) bool {
 		Created:  event.Created.Unix(),
 		Language: event.Language,
 		Name:     event.Name,
-		Tags:     event.Tags,
-		IntTags:  event.IntTags,
+		Tags:     filter.Map2tags(event.Tags),
 	}
 
 	res, err := expr.Run(prog, env)

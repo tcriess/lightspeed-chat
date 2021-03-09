@@ -34,8 +34,12 @@ var Usage = func() {
 	fmt.Fprintf(os.Stderr, "  %s [-c CONFIG] [[-p PLUGIN1] [-p PLUGIN2]...] COMMAND SUBCOMMAND\n", filepath.Base(os.Args[0]))
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Commands/subcommands:")
+	fmt.Fprintln(os.Stderr, "  show rooms")
+	fmt.Fprintln(os.Stderr, "       print the JSON room definitions of all rooms")
 	fmt.Fprintln(os.Stderr, "  show room ID")
 	fmt.Fprintln(os.Stderr, "       print the JSON room definition of the room ID")
+	fmt.Fprintln(os.Stderr, "  show users")
+	fmt.Fprintln(os.Stderr, "       print the JSON user definition of all users")
 	fmt.Fprintln(os.Stderr, "  show user ID")
 	fmt.Fprintln(os.Stderr, "       print the JSON user definition of the user ID")
 	fmt.Fprintln(os.Stderr, "  set room")
@@ -90,9 +94,9 @@ func main() {
 	eventHandlers := make([]plugins.EventHandler, 0)
 	for _, mhp := range *eventHandlerPlugins {
 		pluginClient := plugin.NewClient(&plugin.ClientConfig{
-			HandshakeConfig: plugins.Handshake,
-			Plugins:         plugins.PluginMap,
-			Cmd:             exec.Command("sh", "-c", mhp),
+			HandshakeConfig:  plugins.Handshake,
+			Plugins:          plugins.PluginMap,
+			Cmd:              exec.Command("sh", "-c", mhp),
 			AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
 			Managed:          true,
 		})
@@ -162,9 +166,12 @@ func main() {
 				globals.AppLogger.Error("could not get rooms", "error", err)
 				return
 			}
-			for _, room := range rooms {
-				globals.AppLogger.Info("room", "room", *room)
+			r, err := json.Marshal(rooms)
+			if err != nil {
+				globals.AppLogger.Error("could not marshal rooms", "error", err)
+				return
 			}
+			fmt.Println(string(r))
 
 		case "room":
 			if pflag.NArg() < 3 {
@@ -177,7 +184,12 @@ func main() {
 				globals.AppLogger.Error("could not get room", "error", err)
 				return
 			}
-			globals.AppLogger.Info("room", "room", room)
+			r, err := json.Marshal(room)
+			if err != nil {
+				globals.AppLogger.Error("could not marshal room", "error", err)
+				return
+			}
+			fmt.Println(string(r))
 
 		case "users":
 			users, err := persister.GetUsers()
@@ -185,9 +197,12 @@ func main() {
 				globals.AppLogger.Error("could not get users", "error", err)
 				return
 			}
-			for _, user := range users {
-				globals.AppLogger.Info("room", "user", *user)
+			u, err := json.Marshal(users)
+			if err != nil {
+				globals.AppLogger.Error("could not marshal users", "error", err)
+				return
 			}
+			fmt.Println(string(u))
 
 		case "user":
 			if pflag.NArg() < 3 {
@@ -200,7 +215,12 @@ func main() {
 				globals.AppLogger.Error("could not get user", "error", err)
 				return
 			}
-			globals.AppLogger.Info("user", "user", user)
+			u, err := json.Marshal(user)
+			if err != nil {
+				globals.AppLogger.Error("could not marshal user", "error", err)
+				return
+			}
+			fmt.Println(string(u))
 		}
 
 	case "delete":
@@ -244,6 +264,9 @@ func main() {
 			err = persister.GetRoom(&room)
 			if err != nil {
 				globals.AppLogger.Info("room does not exist, creating")
+			}
+			if room.Owner == nil {
+				room.Owner = &types.User{}
 			}
 			if room.Owner.Id == "" {
 				globals.AppLogger.Warn("no owner set")

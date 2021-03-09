@@ -31,6 +31,7 @@ pkged.go
 
 # room db files
 *.buntdb
+!default.buntdb
 # config files
 /config/config_vagrant*
 /config/local

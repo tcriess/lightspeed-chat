@@ -88,7 +88,7 @@ cp plugins/lightspeed-chat-google-translate-plugin/lightspeed-chat-google-transl
 
 ## Frontend
 
-Lightspeed-chat requires a tweaked version of the React frontend of the Lightspeed project (branch `feature-external-chat` found [here](https://github.com/tcriess/Lightspeed-react/tree/feature-external-chat)).
+Lightspeed-chat requires an extended version of the React frontend of the Lightspeed project (branch `feature-external-chat` found [here](https://github.com/tcriess/Lightspeed-react/tree/feature-external-chat)).
 
 ```shell
 git clone https://github.com/tcriess/Lightspeed-react.git
@@ -127,7 +127,8 @@ history {
 
 persistence {
   buntdb {
-    name = "default.buntdb"
+    global_name = "default.buntdb"
+    room_name_template = "room_{{ .RoomId }}.buntdb"
   }
 }
 ```
@@ -148,7 +149,8 @@ Note that one translation for each configured language is generated per chat mes
 
 As a persistence backend, currently only [BuntDB](https://github.com/tidwall/buntdb) is supported.
 BuntDB is an in-memory key/value store persisting the contents to (almost) plain-text files.
-The block to configure persistence backends is called `persistence`, the sub-block `buntdb` only requires the attribute `name` defining the file name (relative to the working directory or absolute path).
+The block to configure persistence backends is called `persistence`, the sub-block `buntdb` requires the attribute `global_name` defining the file name (relative to the working directory or absolute path)
+of the global database (containing users and rooms), and the attribute `room_name_template` for a file name template of the individual room databases (text/template, where `{{.RoomId}}` can be used as a placeholder for the room id).
 
 ## Plugins
 
@@ -218,4 +220,6 @@ tbd
 - [ ] unit tests
 - [ ] extend the admin cli tool
 - [ ] migrate fully to [hclog](https://github.com/hashicorp/go-hclog)
+- [ ] maybe use [viper](https://github.com/spf13/viper) for configuration
 - [ ] support stickers / message types other than text
+- [ ] support external databases for persistence

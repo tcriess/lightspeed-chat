@@ -10,14 +10,14 @@ type User struct {
 	Id         string
 	Nick       string
 	Language   string
-	Tags       map[string]string
-	IntTags    map[string]int64
+	Tags       map[string]TagValue
 	LastOnline int64
 }
 
 type Room struct {
 	Id    string
 	Owner User
+	Tags  map[string]TagValue
 }
 
 type Source struct {
@@ -41,6 +41,5 @@ type Env struct {
 	Created  int64
 	Language string
 	Name     string
-	Tags     map[string]string
-	IntTags  map[string]int64
+	Tags     map[string]TagValue
 }
