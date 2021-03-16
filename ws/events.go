@@ -83,3 +83,29 @@ func (eh *emitEventsHelper) GetRoom(roomId string) (*types.Room, error) {
 	}
 	return room, nil
 }
+
+func (eh *emitEventsHelper) ChangeUserTags(userId string, updates []*types.TagUpdate) (*types.User, []bool, error) {
+	resOk := make([]bool, len(updates))
+	user := &types.User{Id: userId}
+	if eh.hub.Persister != nil {
+		var err error
+		resOk, err = eh.hub.Persister.UpdateUserTags(user, updates)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return user, resOk, nil
+}
+
+func (eh *emitEventsHelper) ChangeRoomTags(roomId string, updates []*types.TagUpdate) (*types.Room, []bool, error) {
+	resOk := make([]bool, len(updates))
+	room := &types.Room{Id: roomId}
+	if eh.hub.Persister != nil {
+		var err error
+		resOk, err = eh.hub.Persister.UpdateRoomTags(room, updates)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return room, resOk, nil
+}

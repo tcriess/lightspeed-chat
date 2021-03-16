@@ -108,6 +108,7 @@ func main() {
 		if strings.HasSuffix(pluginName, "-plugin") {
 			pluginName = pluginName[:len(pluginName)-len("-plugin")]
 		}
+		pluginName = strings.ToLower(pluginName)
 		if pluginName == "main" {
 			globals.AppLogger.Warn(`"main" is not a valid plugin name, skipping`)
 			continue
@@ -264,6 +265,11 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 			nick = user.Nick
 		}
 	}
+	for k := range user.Tags {
+		if strings.HasPrefix(k, "_") { // remove internal tags
+			delete(user.Tags, k)
+		}
+	}
 	c := ws.NewClient(hub, conn, &user, language, doneChan)
 	go c.PluginLoop()
 
@@ -297,7 +303,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	userEvent := types.NewEvent(hub.Room, source, "", "", types.EventTypeUser, tags)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(4)
+	wg.Add(3)
 	go func(evt *types.Event, wg *sync.WaitGroup) {
 		defer wg.Done()
 		hub.BroadcastEvents <- []*types.Event{evt}

@@ -37,17 +37,17 @@ func (c *Client) RunFilterEvent(event *types.Event, prog *vm.Program) bool {
 				Id:         c.hub.Room.Owner.Id,
 				Nick:       c.hub.Room.Owner.Nick,
 				Language:   c.hub.Room.Owner.Language,
-				Tags:       filter.Map2tags(c.hub.Room.Owner.Tags),
+				Tags:       c.hub.Room.Owner.Tags,
 				LastOnline: c.hub.Room.Owner.LastOnline.Unix(),
 			},
-			Tags: filter.Map2tags(c.hub.Room.Tags),
+			Tags: c.hub.Room.Tags,
 		},
 		Source: filter.Source{
 			User: filter.User{
 				Id:         event.Source.User.Id,
 				Nick:       event.Source.User.Nick,
 				Language:   event.Source.User.Language,
-				Tags:       filter.Map2tags(event.Source.User.Tags),
+				Tags:       event.Source.User.Tags,
 				LastOnline: event.Source.User.LastOnline.Unix(),
 			},
 			PluginName: event.Source.PluginName,
@@ -57,22 +57,27 @@ func (c *Client) RunFilterEvent(event *types.Event, prog *vm.Program) bool {
 				Id:         c.user.Id,
 				Nick:       c.user.Nick,
 				Language:   c.user.Language,
-				Tags:       filter.Map2tags(c.user.Tags),
+				Tags:       c.user.Tags,
 				LastOnline: c.user.LastOnline.Unix(),
 			},
 			Client: filter.Client{
 				ClientLanguage: c.Language,
 			},
 		},
-		Created:  event.Created.Unix(),
-		Language: event.Language,
-		Name:     event.Name,
-		Tags:     filter.Map2tags(event.Tags),
+		Created:       event.Created.Unix(),
+		Language:      event.Language,
+		Name:          event.Name,
+		Tags:          event.Tags,
+		AsInt:         filter.AsInt,
+		AsFloat:       filter.AsFloat,
+		AsStringSlice: filter.AsStringSlice,
+		AsIntSlice:    filter.AsIntSlice,
+		AsFloatSlice:  filter.AsFloatSlice,
 	}
 	globals.AppLogger.Debug("running filter", "env.Target.Client.ClientLanguage", env.Client.ClientLanguage, "event.Language", event.Language, "env", env, "event", event)
 	res, err := expr.Run(prog, env)
 	if err != nil {
-		log.Printf("error: could not run filter: %s", err)
+		globals.AppLogger.Error("error: could not run filter: %s", err)
 		return false
 	}
 	globals.AppLogger.Debug("filter result:", "res", res)
@@ -109,17 +114,17 @@ func (h *Hub) RunPluginFilterEvent(event *types.Event, prog *vm.Program) bool {
 				Id:         h.Room.Owner.Id,
 				Nick:       h.Room.Owner.Nick,
 				Language:   h.Room.Owner.Language,
-				Tags:       filter.Map2tags(h.Room.Owner.Tags),
+				Tags:       h.Room.Owner.Tags,
 				LastOnline: h.Room.Owner.LastOnline.Unix(),
 			},
-			Tags: filter.Map2tags(h.Room.Tags),
+			Tags: h.Room.Tags,
 		},
 		Source: filter.Source{
 			User: filter.User{
 				Id:         event.Source.User.Id,
 				Nick:       event.Source.User.Nick,
 				Language:   event.Source.User.Language,
-				Tags:       filter.Map2tags(event.Source.User.Tags),
+				Tags:       event.Source.User.Tags,
 				LastOnline: event.Source.User.LastOnline.Unix(),
 			},
 			PluginName: event.Source.PluginName,
@@ -128,10 +133,15 @@ func (h *Hub) RunPluginFilterEvent(event *types.Event, prog *vm.Program) bool {
 			User:   filter.User{},
 			Client: filter.Client{},
 		},
-		Created:  event.Created.Unix(),
-		Language: event.Language,
-		Name:     event.Name,
-		Tags:     filter.Map2tags(event.Tags),
+		Created:       event.Created.Unix(),
+		Language:      event.Language,
+		Name:          event.Name,
+		Tags:          event.Tags,
+		AsInt:         filter.AsInt,
+		AsFloat:       filter.AsFloat,
+		AsStringSlice: filter.AsStringSlice,
+		AsIntSlice:    filter.AsIntSlice,
+		AsFloatSlice:  filter.AsFloatSlice,
 	}
 
 	res, err := expr.Run(prog, env)

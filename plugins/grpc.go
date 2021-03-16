@@ -107,6 +107,32 @@ func roomProto2Native(inRoom *proto.Room) *types.Room {
 	return outRoom
 }
 
+func tagUpdatesNative2Proto(updates []*types.TagUpdate) []*proto.TagUpdate {
+	outTagUpdates := make([]*proto.TagUpdate, len(updates))
+	for i, update := range updates {
+		outTagUpdates[i] = &proto.TagUpdate{
+			Name:       update.Name,
+			Type:       proto.TagUpdate_TagValueType(update.Type),
+			Index:      int64(update.Index),
+			Expression: update.Expression,
+		}
+	}
+	return outTagUpdates
+}
+
+func tagUpdatesProto2Native(updates []*proto.TagUpdate) []*types.TagUpdate {
+	outTagUpdates := make([]*types.TagUpdate, len(updates))
+	for i, update := range updates {
+		outTagUpdates[i] = &types.TagUpdate{
+			Name:       update.Name,
+			Type:       int(update.Type),
+			Index:      int(update.Index),
+			Expression: update.Expression,
+		}
+	}
+	return outTagUpdates
+}
+
 func (c *GRPCClient) HandleEvents(inEvents []*types.Event) ([]*types.Event, error) {
 	events := make([]*proto.Event, len(inEvents))
 	for i, inEvent := range inEvents {
@@ -330,6 +356,18 @@ func (c *GRPCEmitEventsHelperClient) GetUser(userId string) (*types.User, error)
 	return userProto2Native(resp.User), nil
 }
 
+func (c *GRPCEmitEventsHelperClient) ChangeUserTags(userId string, updates []*types.TagUpdate) (*types.User, []bool, error) {
+	req := &proto.ChangeUserTagsRequest{
+		UserId:    userId,
+		TagUpdate: tagUpdatesNative2Proto(updates),
+	}
+	resp, err := c.client.ChangeUserTags(context.Background(), req)
+	if err != nil {
+		return nil, nil, err
+	}
+	return userProto2Native(resp.User), resp.Ok, nil
+}
+
 func (c *GRPCEmitEventsHelperClient) GetRoom(roomId string) (*types.Room, error) {
 	req := &proto.GetRoomRequest{
 		RoomId: roomId,
@@ -339,6 +377,18 @@ func (c *GRPCEmitEventsHelperClient) GetRoom(roomId string) (*types.Room, error)
 		return nil, err
 	}
 	return roomProto2Native(resp.Room), nil
+}
+
+func (c *GRPCEmitEventsHelperClient) ChangeRoomTags(roomId string, updates []*types.TagUpdate) (*types.Room, []bool, error) {
+	req := &proto.ChangeRoomTagsRequest{
+		RoomId:    roomId,
+		TagUpdate: tagUpdatesNative2Proto(updates),
+	}
+	resp, err := c.client.ChangeRoomTags(context.Background(), req)
+	if err != nil {
+		return nil, nil, err
+	}
+	return roomProto2Native(resp.Room), resp.Ok, nil
 }
 
 type GRPCEmitEventsHelperServer struct {
@@ -376,10 +426,26 @@ func (s *GRPCEmitEventsHelperServer) GetUser(ctx context.Context, req *proto.Get
 	return &proto.GetUserResponse{User: userNative2Proto(user)}, nil
 }
 
+func (s *GRPCEmitEventsHelperServer) ChangeUserTags(ctx context.Context, req *proto.ChangeUserTagsRequest) (resp *proto.ChangeUserTagsResponse, err error) {
+	user, resOk, err := s.Impl.ChangeUserTags(req.UserId, tagUpdatesProto2Native(req.TagUpdate))
+	if err != nil {
+		return nil, err
+	}
+	return &proto.ChangeUserTagsResponse{User: userNative2Proto(user), Ok: resOk}, nil
+}
+
 func (s *GRPCEmitEventsHelperServer) GetRoom(ctx context.Context, req *proto.GetRoomRequest) (resp *proto.GetRoomResponse, err error) {
 	room, err := s.Impl.GetRoom(req.RoomId)
 	if err != nil {
 		return nil, err
 	}
 	return &proto.GetRoomResponse{Room: roomNative2Proto(room)}, nil
+}
+
+func (s *GRPCEmitEventsHelperServer) ChangeRoomTags(ctx context.Context, req *proto.ChangeRoomTagsRequest) (resp *proto.ChangeRoomTagsResponse, err error) {
+	room, resOk, err := s.Impl.ChangeRoomTags(req.RoomId, tagUpdatesProto2Native(req.TagUpdate))
+	if err != nil {
+		return nil, err
+	}
+	return &proto.ChangeRoomTagsResponse{Room: roomNative2Proto(room), Ok: resOk}, nil
 }

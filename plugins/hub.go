@@ -32,6 +32,8 @@ type EmitEventsHelper interface {
 	AuthenticateUser(string, string) (*types.User, error)
 	GetUser(string) (*types.User, error)
 	GetRoom(string) (*types.Room, error)
+	ChangeUserTags(string, []*types.TagUpdate) (*types.User, []bool, error)
+	ChangeRoomTags(string, []*types.TagUpdate) (*types.Room, []bool, error)
 }
 
 // KV is the interface that we're exposing as a plugin.

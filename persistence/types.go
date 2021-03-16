@@ -12,10 +12,12 @@ type Persister interface {
 	StoreUser(types.User) error
 	GetUser(*types.User) error
 	GetUsers() ([]*types.User, error)
+	UpdateUserTags(*types.User, []*types.TagUpdate) ([]bool, error)
 	DeleteUser(*types.User) error
 	StoreRoom(types.Room) error
 	GetRoom(*types.Room) error
 	GetRooms() ([]*types.Room, error)
+	UpdateRoomTags(*types.Room, []*types.TagUpdate) ([]bool, error)
 	DeleteRoom(*types.Room) error
 	Close() error
 }

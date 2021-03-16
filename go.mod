@@ -24,8 +24,10 @@ require (
 	github.com/onsi/ginkgo v1.14.2 // indirect
 	github.com/onsi/gomega v1.10.3 // indirect
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.7.0 // indirect
+	github.com/spf13/viper v1.7.1
+	github.com/stretchr/testify v1.7.0
 	github.com/tidwall/buntdb v1.2.0
 	github.com/zclconf/go-cty v1.7.1
 	go.opencensus.io v0.22.6 // indirect

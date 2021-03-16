@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"github.com/tcriess/lightspeed-chat/config"
+	"github.com/tcriess/lightspeed-chat/filter"
 	"github.com/tcriess/lightspeed-chat/globals"
 	"github.com/tcriess/lightspeed-chat/types"
 	"github.com/tidwall/buntdb"
 )
 
+// BuntDBPersist is a Persister for BuntDB (file-backed in-memory key-value store)
 type BuntDBPersist struct {
 	db                     *buntdb.DB
 	roomDbs                map[string]*buntdb.DB
@@ -162,9 +164,43 @@ func (p *BuntDBPersist) GetUsers() ([]*types.User, error) {
 	return users, nil
 }
 
+func (p *BuntDBPersist) UpdateUserTags(user *types.User, updates []*types.TagUpdate) ([]bool, error) {
+	resOk := make([]bool, len(updates))
+	if user.Id == "" {
+		return nil, fmt.Errorf("no user id")
+	}
+	err := p.db.Update(func(tx *buntdb.Tx) error {
+		u, err := tx.Get("user:" + user.Id)
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal([]byte(u), user)
+		if err != nil {
+			return err
+		}
+		if user.Tags == nil {
+			user.Tags = make(map[string]string)
+		}
+		resOk = filter.UpdateTags(user.Tags, updates)
+		newUser, err := json.Marshal(user)
+		if err != nil {
+			return err
+		}
+		_, _, err = tx.Set("user:" + user.Id, string(newUser), nil)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resOk, nil
+}
+
 func (p *BuntDBPersist) DeleteUser(user *types.User) error {
 	if user.Id == "" {
-		return fmt.Errorf("no room id")
+		return fmt.Errorf("no user id")
 	}
 	err := p.db.View(func(tx *buntdb.Tx) error {
 		_, err := tx.Delete("user:" + user.Id)
@@ -320,6 +356,40 @@ func (p *BuntDBPersist) GetRooms() ([]*types.Room, error) {
 		return nil, err
 	}
 	return rooms, nil
+}
+
+func (p *BuntDBPersist) UpdateRoomTags(room *types.Room, updates []*types.TagUpdate) ([]bool, error) {
+	resOk := make([]bool, len(updates))
+	if room.Id == "" {
+		return nil, fmt.Errorf("no room id")
+	}
+	err := p.db.Update(func(tx *buntdb.Tx) error {
+		r, err := tx.Get("room:" + room.Id)
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal([]byte(r), room)
+		if err != nil {
+			return err
+		}
+		if room.Tags == nil {
+			room.Tags = make(map[string]string)
+		}
+		resOk = filter.UpdateTags(room.Tags, updates)
+		newRoom, err := json.Marshal(room)
+		if err != nil {
+			return err
+		}
+		_, _, err = tx.Set("room:" + room.Id, string(newRoom), nil)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resOk, nil
 }
 
 func (p *BuntDBPersist) StoreEvents(room *types.Room, events []*types.Event) error {

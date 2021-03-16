@@ -187,10 +187,10 @@ func (c *Client) ReadLoop() {
 			}
 			source := &types.Source{
 				User: &types.User{
-					Id:       c.user.Id,
-					Nick:     c.user.Nick,
-					Language: c.user.Language,
-					Tags:     c.user.Tags,
+					Id:         c.user.Id,
+					Nick:       c.user.Nick,
+					Language:   c.user.Language,
+					Tags:       c.user.Tags,
 					LastOnline: c.user.LastOnline,
 				},
 				PluginName: "",

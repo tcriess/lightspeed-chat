@@ -9,11 +9,9 @@ import (
 	"github.com/tcriess/lightspeed-chat/globals"
 )
 
-/*
-Authenticate verifies a given OIDC ID-Token using the configured OIDC provider.
-It returns the user's id if verification was successful (or an empty string if no provider was configured).
-TODO: Currently, the userId is set to the "email" property of the claim, this could be made configurable. But: ensure that this is unique across the userbase!
-*/
+// Authenticate verifies a given OIDC ID-Token using the configured OIDC provider.
+// It returns the user's id if verification was successful (or an empty string if no provider was configured).
+// TODO: Currently, the userId is set to the "email" property of the claim, this could be made configurable. But: ensure that this is unique across the user base!
 func Authenticate(idToken, oidcProvider string, cfg *config.Config) (string, error) {
 	globals.AppLogger.Info("in authenticate")
 	userId := ""

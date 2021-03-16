@@ -251,7 +251,9 @@ type EmitEventsHelperClient interface {
 	EmitEvents(ctx context.Context, in *EmitEventsRequest, opts ...grpc.CallOption) (*EmitEventsResponse, error)
 	AuthenticateUser(ctx context.Context, in *AuthenticateUserRequest, opts ...grpc.CallOption) (*AuthenticateUserResponse, error)
 	GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error)
+	ChangeUserTags(ctx context.Context, in *ChangeUserTagsRequest, opts ...grpc.CallOption) (*ChangeUserTagsResponse, error)
 	GetRoom(ctx context.Context, in *GetRoomRequest, opts ...grpc.CallOption) (*GetRoomResponse, error)
+	ChangeRoomTags(ctx context.Context, in *ChangeRoomTagsRequest, opts ...grpc.CallOption) (*ChangeRoomTagsResponse, error)
 }
 
 type emitEventsHelperClient struct {
@@ -289,9 +291,27 @@ func (c *emitEventsHelperClient) GetUser(ctx context.Context, in *GetUserRequest
 	return out, nil
 }
 
+func (c *emitEventsHelperClient) ChangeUserTags(ctx context.Context, in *ChangeUserTagsRequest, opts ...grpc.CallOption) (*ChangeUserTagsResponse, error) {
+	out := new(ChangeUserTagsResponse)
+	err := c.cc.Invoke(ctx, "/proto.EmitEventsHelper/ChangeUserTags", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *emitEventsHelperClient) GetRoom(ctx context.Context, in *GetRoomRequest, opts ...grpc.CallOption) (*GetRoomResponse, error) {
 	out := new(GetRoomResponse)
 	err := c.cc.Invoke(ctx, "/proto.EmitEventsHelper/GetRoom", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *emitEventsHelperClient) ChangeRoomTags(ctx context.Context, in *ChangeRoomTagsRequest, opts ...grpc.CallOption) (*ChangeRoomTagsResponse, error) {
+	out := new(ChangeRoomTagsResponse)
+	err := c.cc.Invoke(ctx, "/proto.EmitEventsHelper/ChangeRoomTags", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +325,9 @@ type EmitEventsHelperServer interface {
 	EmitEvents(context.Context, *EmitEventsRequest) (*EmitEventsResponse, error)
 	AuthenticateUser(context.Context, *AuthenticateUserRequest) (*AuthenticateUserResponse, error)
 	GetUser(context.Context, *GetUserRequest) (*GetUserResponse, error)
+	ChangeUserTags(context.Context, *ChangeUserTagsRequest) (*ChangeUserTagsResponse, error)
 	GetRoom(context.Context, *GetRoomRequest) (*GetRoomResponse, error)
+	ChangeRoomTags(context.Context, *ChangeRoomTagsRequest) (*ChangeRoomTagsResponse, error)
 	mustEmbedUnimplementedEmitEventsHelperServer()
 }
 
@@ -322,8 +344,14 @@ func (UnimplementedEmitEventsHelperServer) AuthenticateUser(context.Context, *Au
 func (UnimplementedEmitEventsHelperServer) GetUser(context.Context, *GetUserRequest) (*GetUserResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUser not implemented")
 }
+func (UnimplementedEmitEventsHelperServer) ChangeUserTags(context.Context, *ChangeUserTagsRequest) (*ChangeUserTagsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChangeUserTags not implemented")
+}
 func (UnimplementedEmitEventsHelperServer) GetRoom(context.Context, *GetRoomRequest) (*GetRoomResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRoom not implemented")
+}
+func (UnimplementedEmitEventsHelperServer) ChangeRoomTags(context.Context, *ChangeRoomTagsRequest) (*ChangeRoomTagsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChangeRoomTags not implemented")
 }
 func (UnimplementedEmitEventsHelperServer) mustEmbedUnimplementedEmitEventsHelperServer() {}
 
@@ -392,6 +420,24 @@ func _EmitEventsHelper_GetUser_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EmitEventsHelper_ChangeUserTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChangeUserTagsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EmitEventsHelperServer).ChangeUserTags(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/proto.EmitEventsHelper/ChangeUserTags",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EmitEventsHelperServer).ChangeUserTags(ctx, req.(*ChangeUserTagsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _EmitEventsHelper_GetRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetRoomRequest)
 	if err := dec(in); err != nil {
@@ -406,6 +452,24 @@ func _EmitEventsHelper_GetRoom_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(EmitEventsHelperServer).GetRoom(ctx, req.(*GetRoomRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EmitEventsHelper_ChangeRoomTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChangeRoomTagsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EmitEventsHelperServer).ChangeRoomTags(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/proto.EmitEventsHelper/ChangeRoomTags",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EmitEventsHelperServer).ChangeRoomTags(ctx, req.(*ChangeRoomTagsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -430,8 +494,16 @@ var EmitEventsHelper_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _EmitEventsHelper_GetUser_Handler,
 		},
 		{
+			MethodName: "ChangeUserTags",
+			Handler:    _EmitEventsHelper_ChangeUserTags_Handler,
+		},
+		{
 			MethodName: "GetRoom",
 			Handler:    _EmitEventsHelper_GetRoom_Handler,
+		},
+		{
+			MethodName: "ChangeRoomTags",
+			Handler:    _EmitEventsHelper_ChangeRoomTags_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -20,8 +20,6 @@ const (
 	WireMessageTypeGenerics     = "generics"
 )
 
-
-
 // JSON-serialized WebsocketMessage is what is actually sent via the Websocket connection
 type WebsocketMessage struct {
 	Event string          `json:"event"`

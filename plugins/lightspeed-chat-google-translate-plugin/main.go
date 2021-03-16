@@ -21,6 +21,9 @@ import (
 const (
 	translatorNick         = "translatorBot"
 	translatorText         = "translatorBot active"
+	translatorHelpText     = `### Translator plugin ###
+ -> all chat messages are automatically translated into all supported languages, no further commands are required`
+	helpCommand            = "/help"
 	translatorTextLanguage = "en-US"
 	pluginName             = "google-translate"
 )
@@ -47,46 +50,70 @@ type EventHandler struct{}
 func (m *EventHandler) HandleEvents(events []*types.Event) ([]*types.Event, error) {
 	appLogger.Info("in HandleEvents", "events", events, "projectId", projectId, "languages", languages)
 	outEvents := make([]*types.Event, 0)
+
 	for _, event := range events {
-		if event.Name != types.EventTypeChat {
-			continue
-		}
-		message, ok := event.Tags["message"]
-		if !ok {
-			continue
-		}
-		if strings.HasPrefix(message, "/") {
-			continue
-		}
 		source := &types.Source{
 			User:       event.User,
 			PluginName: pluginName,
 		}
-		for _, language := range languages {
-			isoLang := language[0:2]
-			res, err := translation([]string{message}, language)
-			if err != nil {
-				return outEvents, err
-			}
-			if len(res) == 0 {
-				appLogger.Info("no translation")
+		switch event.Name {
+		case types.EventTypeChat:
+			message, ok := event.Tags["message"]
+			if !ok {
 				continue
 			}
-			if res[0] != "" {
-				filter := event.TargetFilter
-				if filter != "" {
-					filter = fmt.Sprintf(`( %s ) && Target.Client.ClientLanguage startsWith %s`, filter, strconv.Quote(isoLang))
-				} else {
-					filter = fmt.Sprintf(`Target.Client.ClientLanguage startsWith %s`, strconv.Quote(isoLang))
-				}
-				tags := map[string]string{
-					"message":   res[0],
-					"source_id": event.Id,
-				}
-				outEvent := types.NewEvent(event.Room, source, filter, isoLang, types.EventTypeTranslation, tags)
-				outEvents = append(outEvents, outEvent)
+			if strings.HasPrefix(message, "/") { // should never happen, messages starting with "/" are commands
+				continue
 			}
+
+			for _, language := range languages {
+				isoLang := language[0:2]
+				res, err := translation([]string{message}, language)
+				if err != nil {
+					return outEvents, err
+				}
+				if len(res) == 0 {
+					appLogger.Info("no translation")
+					continue
+				}
+				if res[0] != "" {
+					filter := event.TargetFilter
+					if filter != "" {
+						filter = fmt.Sprintf(`( %s ) && Target.Client.ClientLanguage startsWith %s`, filter, strconv.Quote(isoLang))
+					} else {
+						filter = fmt.Sprintf(`Target.Client.ClientLanguage startsWith %s`, strconv.Quote(isoLang))
+					}
+					tags := map[string]string{
+						"message":   res[0],
+						"source_id": event.Id,
+					}
+					outEvent := types.NewEvent(event.Room, source, filter, isoLang, types.EventTypeTranslation, tags)
+					outEvents = append(outEvents, outEvent)
+				}
+			}
+
+		case types.EventTypeCommand:
+			command, ok := event.Tags["command"]
+			if !ok {
+				continue
+			}
+			switch command {
+			case helpCommand:
+				tags := map[string]string{
+					"message": translatorHelpText,
+				}
+				outEvent := types.NewEvent(event.Room, source, fmt.Sprintf(`Target.User.Id == %s`, strconv.Quote(event.Source.User.Id)), translatorTextLanguage, types.EventTypeChat, tags)
+				translatedEvents, _ := m.HandleEvents([]*types.Event{outEvent})
+				outEvents = append(outEvents, outEvent)
+				if len(translatedEvents) > 0 {
+					outEvents = append(outEvents, translatedEvents...)
+				}
+			}
+
+		default:
+			continue
 		}
+
 	}
 	return outEvents, nil
 }
@@ -152,7 +179,7 @@ func (m *EventHandler) Configure(val cty.Value) (string, string, error) {
 			appLogger.Error("could not create lru cache", "error", err)
 		}
 	}
-	eventFilter := `Name == "chat"`
+	eventFilter := fmt.Sprintf(`(Name=="command" && (Tags["command"] in [%s])) || Name == "chat"`, strconv.Quote(helpCommand))
 	return cronSpec, eventFilter, nil
 }
 

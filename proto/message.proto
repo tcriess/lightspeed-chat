@@ -38,14 +38,14 @@ message CronResponse {
 message Room {
     string id = 1;
     User owner = 2;
-    map<string,string> tags = 3;
+    map<string, string> tags = 3;
 }
 
 message User {
     string id = 1;
     string nick = 2;
     string language = 3;
-    map<string,string> tags = 4;
+    map<string, string> tags = 4;
     int64 last_online = 5;
 }
 
@@ -61,7 +61,7 @@ message Event {
     int64 created = 4;
     string language = 5;
     string name = 6;
-    map<string,string> tags = 7;
+    map<string, string> tags = 7;
     int64 sent = 8;
     string target_filter = 9;
     bool history = 10;
@@ -123,9 +123,46 @@ message GetRoomResponse {
     Room room = 1;
 }
 
+message TagUpdate {
+    string name = 1;
+    enum TagValueType {
+        STRING = 0;
+        INT = 1;
+        FLOAT = 2;
+        STRINGSLICE = 3;
+        INTSLICE = 4;
+        FLOATSLICE = 5;
+    }
+    TagValueType type = 2;
+    int64 index = 3;
+    string expression = 4;
+}
+
+message ChangeUserTagsRequest {
+    string user_id = 1;
+    repeated TagUpdate tag_update = 2;
+}
+
+message ChangeUserTagsResponse {
+    User user = 1;
+    repeated bool ok = 2;
+}
+
+message ChangeRoomTagsRequest {
+    string room_id = 1;
+    repeated TagUpdate tag_update = 2;
+}
+
+message ChangeRoomTagsResponse {
+    Room room = 1;
+    repeated bool ok = 2;
+}
+
 service EmitEventsHelper {
     rpc EmitEvents (EmitEventsRequest) returns (EmitEventsResponse);
     rpc AuthenticateUser (AuthenticateUserRequest) returns (AuthenticateUserResponse);
     rpc GetUser (GetUserRequest) returns (GetUserResponse);
+    rpc ChangeUserTags (ChangeUserTagsRequest) returns (ChangeUserTagsResponse);
     rpc GetRoom (GetRoomRequest) returns (GetRoomResponse);
+    rpc ChangeRoomTags (ChangeRoomTagsRequest) returns (ChangeRoomTagsResponse);
 }
