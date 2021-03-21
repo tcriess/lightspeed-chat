@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,7 +18,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
-	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/spf13/pflag"
 	"github.com/tcriess/lightspeed-chat/auth"
 	"github.com/tcriess/lightspeed-chat/config"
@@ -57,16 +57,15 @@ func main() {
 	pflag.Parse()
 	log.SetFlags(0)
 
-	globalConfig, pluginConfigs, err := config.ReadConfiguration(*configPath)
+	globalConfig, err := config.ReadConfiguration(*configPath)
 	if err != nil {
 		panic(err)
 	}
 
-	if globalConfig.LogLevel != nil {
-		globals.AppLogger.SetLevel(hclog.LevelFromString(*globalConfig.LogLevel))
-	}
+	globals.AppLogger.SetLevel(hclog.LevelFromString(globalConfig.LogLevel))
 
-	persister, err := persistence.NewBuntPersister(globalConfig)
+	persister, err := persistence.NewSQLitePersister(globalConfig)
+	//persister, err := persistence.NewBuntPersister(globalConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -118,20 +117,17 @@ func main() {
 			Plugin: eventHandler,
 		}
 		globals.AppLogger.Debug("pluginName", "pluginName", pluginName)
-		if cfg, ok := pluginConfigs[pluginName]; ok {
-			globals.AppLogger.Debug("found config", "config", cfg)
-			spec, err := eventHandler.GetSpec()
-			if err != nil {
-				panic(fmt.Sprintf("could not get plugin config spec: %s", err))
+		for _, pluginCfg := range globalConfig.PluginConfigs {
+			if pluginCfg.Name == pluginName {
+				globals.AppLogger.Debug("found config", "config", pluginCfg.RawPluginConfig)
+				cronSpec, eventFilter, err := eventHandler.Configure(pluginCfg.RawPluginConfig)
+				if err != nil {
+					panic(fmt.Sprintf("could not configure plugin %s: %s", pluginName, err))
+				}
+				pluginSpec.CronSpec = cronSpec
+				pluginSpec.EventFilter = eventFilter
+				break
 			}
-			globals.AppLogger.Debug("spec", "spec", spec)
-			val, _ := hcldec.Decode(cfg, spec, nil)
-			cronSpec, eventFilter, err := eventHandler.Configure(val)
-			if err != nil {
-				panic(fmt.Sprintf("could not configure plugin %s: %s", pluginName, err))
-			}
-			pluginSpec.CronSpec = cronSpec
-			pluginSpec.EventFilter = eventFilter
 		}
 		globalPlugins[pluginName] = pluginSpec
 	}
@@ -144,14 +140,33 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+		for _, r := range rooms {
+			globals.AppLogger.Debug("room", "room", *r, "id", r.Id)
+		}
+		globals.AppLogger.Debug("all rooms", "rooms", rooms)
 		if len(rooms) == 0 {
+			adminUser := types.User{Id: "admin"}
+			err := persister.GetUser(&adminUser)
+			if err == sql.ErrNoRows {
+				adminUser.Tags = make(map[string]string)
+				adminUser.Language = "en"
+				adminUser.Nick = "admin"
+				err := persister.StoreUser(adminUser)
+				if err != nil {
+					panic(err)
+				}
+			} else {
+				if err != nil {
+					panic(err)
+				}
+			}
 			// no room in the db, create a default room
 			room := &types.Room{
 				Id:    "default",
-				Owner: &types.User{},
+				Owner: &adminUser,
 				Tags:  make(map[string]string),
 			}
-			err := persister.StoreRoom(*room)
+			err = persister.StoreRoom(*room)
 			if err != nil {
 				panic(err)
 			}
@@ -167,7 +182,7 @@ func main() {
 	}
 
 	for _, room := range rooms {
-		globals.AppLogger.Debug("creating room", "room", *room)
+		globals.AppLogger.Debug("creating room", "id", room.Id, "room", *room)
 		hub := ws.NewHub(room, globalConfig, persister, globalPlugins)
 		hubs[room.Id] = hub
 		go hub.Run()
@@ -202,10 +217,12 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	var hub *ws.Hub
 	hubsLock.RLock()
 	if h, ok := hubs[roomName]; !ok {
+		globals.AppLogger.Debug("room not found")
 		hubsLock.RUnlock()
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	} else {
+		globals.AppLogger.Debug("room found")
 		hubsLock.RUnlock()
 		hub = h
 	}
@@ -249,7 +266,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if userId != "" && hub.Persister != nil {
 		err = hub.Persister.GetUser(&user)
-		if err == buntdb.ErrNotFound {
+		if err == buntdb.ErrNotFound || err == sql.ErrNoRows {
 			user.Language = "en"
 			user.LastOnline = time.Now()
 			err := hub.Persister.StoreUser(user)

@@ -1,0 +1,12 @@
+[[oidc]]
+name = "google"
+client_id = "YOUR-CLIENT-ID"
+provider_url = "https://accounts.google.com"
+
+[history]
+history_size = 1000
+
+[persistence]
+  [persistence.buntdb]
+  global_name = "default.buntdb"
+  room_name_template = "room_{{ .RoomId }}.buntdb"

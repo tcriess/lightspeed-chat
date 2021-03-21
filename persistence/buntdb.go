@@ -57,7 +57,7 @@ func setupBuntDB(cfg *config.Config) (*buntdb.DB, map[string]*buntdb.DB, *templa
 	var db *buntdb.DB
 	roomDbs := make(map[string]*buntdb.DB)
 	var t *template.Template
-	if cfg.PersistenceConfig != nil && cfg.PersistenceConfig.BuntDBConfig != nil && cfg.PersistenceConfig.BuntDBConfig.GlobalName != "" && cfg.PersistenceConfig.BuntDBConfig.RoomNameTemplate != "" {
+	if cfg.PersistenceConfig.BuntDBConfig.GlobalName != "" && cfg.PersistenceConfig.BuntDBConfig.RoomNameTemplate != "" {
 		fileName := cfg.PersistenceConfig.BuntDBConfig.GlobalName
 		var err error
 		db, err = buntdb.Open(fileName)

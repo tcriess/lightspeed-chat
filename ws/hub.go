@@ -64,10 +64,8 @@ type Hub struct {
 
 func NewHub(room *types.Room, cfg *config.Config, persister persistence.Persister, pluginMap map[string]plugins.PluginSpec) *Hub {
 	eventHistorySize := defaultEventHistorySize
-	if cfg.HistoryConfig != nil {
-		if cfg.HistoryConfig.HistorySize > 0 {
-			eventHistorySize = cfg.HistoryConfig.HistorySize
-		}
+	if cfg.HistoryConfig.HistorySize > 0 {
+		eventHistorySize = cfg.HistoryConfig.HistorySize
 	}
 	eventHistory := ring.New(eventHistorySize)
 	hub := &Hub{

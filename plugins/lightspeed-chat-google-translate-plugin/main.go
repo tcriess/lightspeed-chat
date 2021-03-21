@@ -11,27 +11,33 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/golang-lru"
-	"github.com/hashicorp/hcl/v2/hcldec"
+	"github.com/mitchellh/mapstructure"
 	"github.com/tcriess/lightspeed-chat/plugins"
 	"github.com/tcriess/lightspeed-chat/types"
-	"github.com/zclconf/go-cty/cty"
 	translatepb "google.golang.org/genproto/googleapis/cloud/translate/v3"
 )
 
 const (
-	translatorNick         = "translatorBot"
-	translatorText         = "translatorBot active"
-	translatorHelpText     = `### Translator plugin ###
+	translatorNick     = "translatorBot"
+	translatorText     = "translatorBot active"
+	translatorHelpText = `### Translator plugin ###
  -> all chat messages are automatically translated into all supported languages, no further commands are required`
 	helpCommand            = "/help"
 	translatorTextLanguage = "en-US"
 	pluginName             = "google-translate"
 )
 
+type config struct {
+	LogLevel  string   `mapstructure:"log_level"`
+	CronSpec  string   `mapstructure:"cron_spec"`
+	ProjectId string   `mapstructure:"project_id"`
+	Languages []string `mapstructure:"languages"`
+	CacheSize int      `mapstructure:"cache_size"`
+}
+
 var (
-	projectId string
-	languages []string
-	cache     *lru.ARCCache
+	pluginConfig config
+	cache        *lru.ARCCache
 )
 
 type cacheKey struct {
@@ -48,7 +54,7 @@ var appLogger = hclog.New(&hclog.LoggerOptions{
 type EventHandler struct{}
 
 func (m *EventHandler) HandleEvents(events []*types.Event) ([]*types.Event, error) {
-	appLogger.Info("in HandleEvents", "events", events, "projectId", projectId, "languages", languages)
+	appLogger.Info("in HandleEvents", "events", events, "projectId", pluginConfig.ProjectId, "languages", pluginConfig.Languages)
 	outEvents := make([]*types.Event, 0)
 
 	for _, event := range events {
@@ -66,7 +72,7 @@ func (m *EventHandler) HandleEvents(events []*types.Event) ([]*types.Event, erro
 				continue
 			}
 
-			for _, language := range languages {
+			for _, language := range pluginConfig.Languages {
 				isoLang := language[0:2]
 				res, err := translation([]string{message}, language)
 				if err != nil {
@@ -118,69 +124,24 @@ func (m *EventHandler) HandleEvents(events []*types.Event) ([]*types.Event, erro
 	return outEvents, nil
 }
 
-func (m *EventHandler) GetSpec() (*hcldec.BlockSpec, error) {
-	spec := hcldec.BlockSpec{
-		TypeName: "config",
-		Nested: &hcldec.ObjectSpec{
-			"project_id": &hcldec.AttrSpec{
-				Name: "project_id",
-				Type: cty.String,
-			},
-			"languages": &hcldec.AttrSpec{
-				Name: "languages",
-				Type: cty.List(cty.String),
-			},
-			"cron_spec": &hcldec.AttrSpec{
-				Name: "cron_spec",
-				Type: cty.String,
-			},
-			"cache_size": &hcldec.AttrSpec{
-				Name: "cache_size",
-				Type: cty.Number,
-			},
-			"log_level": &hcldec.AttrSpec{
-				Name:     "log_level",
-				Type:     cty.String,
-				Required: false,
-			},
-		},
-		Required: false,
+func (m *EventHandler) Configure(val map[string]interface{}) (string, string, error) {
+	err := mapstructure.WeakDecode(val, &pluginConfig)
+	if err != nil {
+		return "", "", err
 	}
-	return &spec, nil
-}
-
-func (m *EventHandler) Configure(val cty.Value) (string, string, error) {
-	logLevelAttr := val.GetAttr("log_level")
-	if !logLevelAttr.IsNull() {
-		logLevel := logLevelAttr.AsString()
-		if logLevel != "" {
-			appLogger.SetLevel(hclog.LevelFromString(logLevel))
-		}
+	if pluginConfig.LogLevel != "" {
+		appLogger.SetLevel(hclog.LevelFromString(pluginConfig.LogLevel))
 	}
 	appLogger.Info("in plugin configure", "val", val)
-	projectIdAttr := val.GetAttr("project_id")
-	projectId = projectIdAttr.AsString()
-	appLogger.Debug("got", "projectId", projectId)
-	languagesAttr := val.GetAttr("languages")
-	languagesVals := languagesAttr.AsValueSlice()
-	languages = make([]string, len(languagesVals))
-	for i, lv := range languagesVals {
-		languages[i] = lv.AsString()
-	}
-	cronSpec := val.GetAttr("cron_spec").AsString()
-	appLogger.Debug("got", "cronSpec", cronSpec)
-	appLogger.Debug("got", "languages", languages)
-	cacheSizeFl := val.GetAttr("cache_size").AsBigFloat()
-	cacheSize, _ := cacheSizeFl.Uint64()
-	if cacheSize > 0 {
-		if c, err := lru.NewARC(int(cacheSize)); err == nil {
+	if pluginConfig.CacheSize > 0 {
+		if c, err := lru.NewARC(int(pluginConfig.CacheSize)); err == nil {
 			cache = c
 		} else {
 			appLogger.Error("could not create lru cache", "error", err)
 		}
 	}
 	eventFilter := fmt.Sprintf(`(Name=="command" && (Tags["command"] in [%s])) || Name == "chat"`, strconv.Quote(helpCommand))
-	return cronSpec, eventFilter, nil
+	return pluginConfig.CronSpec, eventFilter, nil
 }
 
 func (m *EventHandler) Cron(room *types.Room) ([]*types.Event, error) {
@@ -251,7 +212,7 @@ func translation(srcText []string, language string) ([]string, error) {
 		//MimeType:           "",
 		//SourceLanguageCode: "",
 		TargetLanguageCode: language,
-		Parent:             fmt.Sprintf("projects/%s/locations/global", projectId),
+		Parent:             fmt.Sprintf("projects/%s/locations/global", pluginConfig.ProjectId),
 		//Model:              "",
 		//GlossaryConfig:     nil,
 		//Labels:             nil,

@@ -4,10 +4,8 @@ import (
 	"context"
 
 	"github.com/hashicorp/go-plugin"
-	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/tcriess/lightspeed-chat/proto"
 	"github.com/tcriess/lightspeed-chat/types"
-	"github.com/zclconf/go-cty/cty"
 	"google.golang.org/grpc"
 )
 
@@ -38,11 +36,8 @@ type EmitEventsHelper interface {
 
 // KV is the interface that we're exposing as a plugin.
 type EventHandler interface {
-	// GetSpec returns the HCL specification of the configuration block for the plugin
-	GetSpec() (*hcldec.BlockSpec, error)
-
 	// Configure returns the cron spec and the events filter
-	Configure(cty.Value) (cronSpec string, eventsFilter string, err error)
+	Configure(map[string]interface{}) (cronSpec string, eventsFilter string, err error)
 
 	// Cron is invoked from the main process according to the cronSpec as returned by Configure.
 	// Cron returns []types.Event to be emitted

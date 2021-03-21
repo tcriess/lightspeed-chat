@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"log"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/tcriess/lightspeed-chat/config"
@@ -30,7 +29,7 @@ func Authenticate(idToken, oidcProvider string, cfg *config.Config) (string, err
 		globals.AppLogger.Debug("no oidc config found for provider", "provider", oidcProvider)
 		return "", nil
 	}
-	log.Printf("found oidc config")
+	globals.AppLogger.Debug("found oidc config")
 	provider, err := oidc.NewProvider(context.Background(), oidcConf.ProviderUrl)
 	if err != nil {
 		return "", err
@@ -44,19 +43,22 @@ func Authenticate(idToken, oidcProvider string, cfg *config.Config) (string, err
 	verifier := provider.Verifier(&conf)
 	verifiedIdToken, err := verifier.Verify(context.Background(), idToken)
 	if err != nil {
-		log.Printf("error: %s", err)
+		globals.AppLogger.Error("could not verify token", "error", err)
 		return "", err
 	}
 
 	claims := struct {
-		Email string `json:"email"`
+		Sub string `json:"sub"`
+		PreferredUsername string `json:"preferred_username"`
 	}{}
 	err = verifiedIdToken.Claims(&claims)
 	if err != nil {
+		globals.AppLogger.Error("could not unmarshal claims", "error", err)
 		return "", err
 	}
-	if claims.Email != "" {
-		userId = claims.Email
+	userId = claims.Sub
+	if claims.PreferredUsername != "" {
+		userId = claims.PreferredUsername
 	}
 	return userId, nil
 }

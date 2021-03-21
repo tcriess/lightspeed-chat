@@ -11,13 +11,6 @@ option go_package = "github.com/tcriess/lightspeed-chat/proto";
 // in the parent directory
 // (alternatively, run go generate)
 
-message GetSpecRequest {
-}
-
-message GetSpecResponse {
-    bytes data = 1;
-}
-
 message ConfigureRequest {
     bytes data = 1;
 }
@@ -84,7 +77,6 @@ message InitEmitEventsResponse {
 }
 
 service EventHandler {
-    rpc GetSpec (GetSpecRequest) returns (GetSpecResponse);
     rpc Configure (ConfigureRequest) returns (ConfigureResponse);
     rpc Cron (CronRequest) returns (CronResponse);
     rpc HandleEvents (HandleEventsRequest) returns (HandleEventsResponse);

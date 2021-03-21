@@ -2,17 +2,15 @@ package plugins
 
 import (
 	"bytes"
-	"encoding/gob"
+	"encoding/json"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/hashicorp/go-plugin"
-	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/tcriess/lightspeed-chat/globals"
 	"github.com/tcriess/lightspeed-chat/proto"
 	"github.com/tcriess/lightspeed-chat/types"
-	"github.com/zclconf/go-cty/cty"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
@@ -152,26 +150,9 @@ func (c *GRPCClient) HandleEvents(inEvents []*types.Event) ([]*types.Event, erro
 	return outEvents, nil
 }
 
-func (c *GRPCClient) GetSpec() (*hcldec.BlockSpec, error) {
-	s, err := c.client.GetSpec(context.Background(), &proto.GetSpecRequest{})
-	if err != nil {
-		log.Printf("error: could not get spec: %s", err)
-		return nil, err
-	}
-	var spec hcldec.BlockSpec
-	buf := bytes.NewBuffer(s.Data)
-	enc := gob.NewDecoder(buf)
-	err = enc.Decode(&spec)
-	if err != nil {
-		log.Printf("error: could not decode: %s", err)
-		return nil, err
-	}
-	return &spec, nil
-}
-
-func (c *GRPCClient) Configure(val cty.Value) (string, string, error) {
+func (c *GRPCClient) Configure(val map[string]interface{}) (string, string, error) {
 	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
+	enc := json.NewEncoder(&buf)
 	err := enc.Encode(val)
 	if err != nil {
 		return "", "", err
@@ -253,26 +234,10 @@ func (s *GRPCServer) HandleEvents(ctx context.Context, req *proto.HandleEventsRe
 	return &proto.HandleEventsResponse{Events: events}, nil
 }
 
-func (s *GRPCServer) GetSpec(ctx context.Context, req *proto.GetSpecRequest) (*proto.GetSpecResponse, error) {
-	spec, err := s.Impl.GetSpec()
-	if err != nil {
-		log.Printf("error: could not get spec: %s", err)
-		return nil, err
-	}
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	err = enc.Encode(spec)
-	if err != nil {
-		log.Printf("error: could not encode spec: %s", err)
-		return nil, err
-	}
-	return &proto.GetSpecResponse{Data: buf.Bytes()}, nil
-}
-
 func (s *GRPCServer) Configure(ctx context.Context, req *proto.ConfigureRequest) (*proto.ConfigureResponse, error) {
-	var val cty.Value
+	var val map[string]interface{}
 	buf := bytes.NewBuffer(req.Data)
-	dec := gob.NewDecoder(buf)
+	dec := json.NewDecoder(buf)
 	err := dec.Decode(&val)
 	if err != nil {
 		return nil, err

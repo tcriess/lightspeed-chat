@@ -18,7 +18,6 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EventHandlerClient interface {
-	GetSpec(ctx context.Context, in *GetSpecRequest, opts ...grpc.CallOption) (*GetSpecResponse, error)
 	Configure(ctx context.Context, in *ConfigureRequest, opts ...grpc.CallOption) (*ConfigureResponse, error)
 	Cron(ctx context.Context, in *CronRequest, opts ...grpc.CallOption) (*CronResponse, error)
 	HandleEvents(ctx context.Context, in *HandleEventsRequest, opts ...grpc.CallOption) (*HandleEventsResponse, error)
@@ -31,15 +30,6 @@ type eventHandlerClient struct {
 
 func NewEventHandlerClient(cc grpc.ClientConnInterface) EventHandlerClient {
 	return &eventHandlerClient{cc}
-}
-
-func (c *eventHandlerClient) GetSpec(ctx context.Context, in *GetSpecRequest, opts ...grpc.CallOption) (*GetSpecResponse, error) {
-	out := new(GetSpecResponse)
-	err := c.cc.Invoke(ctx, "/proto.EventHandler/GetSpec", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *eventHandlerClient) Configure(ctx context.Context, in *ConfigureRequest, opts ...grpc.CallOption) (*ConfigureResponse, error) {
@@ -82,7 +72,6 @@ func (c *eventHandlerClient) InitEmitEvents(ctx context.Context, in *InitEmitEve
 // All implementations must embed UnimplementedEventHandlerServer
 // for forward compatibility
 type EventHandlerServer interface {
-	GetSpec(context.Context, *GetSpecRequest) (*GetSpecResponse, error)
 	Configure(context.Context, *ConfigureRequest) (*ConfigureResponse, error)
 	Cron(context.Context, *CronRequest) (*CronResponse, error)
 	HandleEvents(context.Context, *HandleEventsRequest) (*HandleEventsResponse, error)
@@ -94,9 +83,6 @@ type EventHandlerServer interface {
 type UnimplementedEventHandlerServer struct {
 }
 
-func (UnimplementedEventHandlerServer) GetSpec(context.Context, *GetSpecRequest) (*GetSpecResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetSpec not implemented")
-}
 func (UnimplementedEventHandlerServer) Configure(context.Context, *ConfigureRequest) (*ConfigureResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Configure not implemented")
 }
@@ -120,24 +106,6 @@ type UnsafeEventHandlerServer interface {
 
 func RegisterEventHandlerServer(s grpc.ServiceRegistrar, srv EventHandlerServer) {
 	s.RegisterService(&EventHandler_ServiceDesc, srv)
-}
-
-func _EventHandler_GetSpec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetSpecRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(EventHandlerServer).GetSpec(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/proto.EventHandler/GetSpec",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EventHandlerServer).GetSpec(ctx, req.(*GetSpecRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _EventHandler_Configure_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -219,10 +187,6 @@ var EventHandler_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "proto.EventHandler",
 	HandlerType: (*EventHandlerServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "GetSpec",
-			Handler:    _EventHandler_GetSpec_Handler,
-		},
 		{
 			MethodName: "Configure",
 			Handler:    _EventHandler_Configure_Handler,

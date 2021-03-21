@@ -1,0 +1,9 @@
+[[plugin]]
+name = "google-translate"
+project_id = "YOUR-PROJECT-ID"
+languages = [
+  "de-DE",
+  "es-ES",
+  "en-US"]
+cron_spec = "@every 60m"
+cache_size = 10000
