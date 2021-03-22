@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/flock"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/tcriess/lightspeed-chat/config"
 	"github.com/tcriess/lightspeed-chat/filter"
@@ -17,6 +18,7 @@ import (
 type SQLitePersist struct {
 	db *sql.DB
 	sync.RWMutex
+	*flock.Flock
 }
 
 func NewSQLitePersister(cfg *config.Config) (Persister, error) {
@@ -27,10 +29,17 @@ func NewSQLitePersister(cfg *config.Config) (Persister, error) {
 	if db == nil {
 		return nil, nil // no or wrong configuration, ignore the persister
 	}
-	return &SQLitePersist{db: db}, nil
+	p := SQLitePersist{db: db}
+	if cfg.PersistenceConfig.FlockPath != "" {
+		p.Flock = flock.New(cfg.PersistenceConfig.FlockPath)
+	}
+	return &p, nil
 }
 
 func setupSQLiteDB(cfg *config.Config) (*sql.DB, error) {
+	if cfg.PersistenceConfig.SQLiteConfig.DSN == "" {
+		return nil, nil
+	}
 	db, err := sql.Open("sqlite3", cfg.PersistenceConfig.SQLiteConfig.DSN)
 	if err != nil {
 		return nil, err
@@ -84,8 +93,15 @@ FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 }
 
 func (p *SQLitePersist) StoreUser(user types.User) error {
-	p.Lock()
-	defer p.Unlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
+	if user.Tags == nil {
+		user.Tags = make(map[string]string)
+	}
 	tags, err := json.Marshal(user.Tags)
 	if err != nil {
 		return err
@@ -96,8 +112,12 @@ func (p *SQLitePersist) StoreUser(user types.User) error {
 }
 
 func (p *SQLitePersist) GetUser(user *types.User) error {
-	p.RLock()
-	defer p.RUnlock()
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	var lastOnline int64
 	var tagsRaw string
 	query := `SELECT nick,language,last_online,tags FROM users WHERE id=$1;`
@@ -113,8 +133,12 @@ func (p *SQLitePersist) GetUser(user *types.User) error {
 }
 
 func (p *SQLitePersist) GetUsers() ([]*types.User, error) {
-	p.RLock()
-	defer p.RUnlock()
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	users := make([]*types.User, 0)
 	query := `SELECT id,nick,language,last_online,tags FROM users;`
 	rows, err := p.db.Query(query)
@@ -140,8 +164,12 @@ func (p *SQLitePersist) GetUsers() ([]*types.User, error) {
 }
 
 func (p *SQLitePersist) UpdateUserTags(user *types.User, updates []*types.TagUpdate) ([]bool, error) {
-	p.Lock()
-	defer p.Unlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	resOk := make([]bool, len(updates))
 	tx, err := p.db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -178,16 +206,27 @@ func (p *SQLitePersist) UpdateUserTags(user *types.User, updates []*types.TagUpd
 }
 
 func (p *SQLitePersist) DeleteUser(user *types.User) error {
-	p.Lock()
-	defer p.Unlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	query := `DELETE FROM users WHERE id=$1;`
 	_, err := p.db.Exec(query, user.Id)
 	return err
 }
 
 func (p *SQLitePersist) StoreRoom(room types.Room) error {
-	p.Lock()
-	defer p.Unlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
+	if room.Tags == nil {
+		room.Tags = make(map[string]string)
+	}
 	tags, err := json.Marshal(room.Tags)
 	if err != nil {
 		return err
@@ -198,8 +237,12 @@ func (p *SQLitePersist) StoreRoom(room types.Room) error {
 }
 
 func (p *SQLitePersist) GetRoom(room *types.Room) error {
-	p.RLock()
-	defer p.RUnlock()
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	user := types.User{}
 	var lastOnline int64
 	var roomTagsRaw, userTagsRaw string
@@ -220,16 +263,24 @@ func (p *SQLitePersist) GetRoom(room *types.Room) error {
 }
 
 func (p *SQLitePersist) DeleteRoom(room *types.Room) error {
-	p.Lock()
-	defer p.Unlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	query := `DELETE FROM rooms WHERE id=$1;`
 	_, err := p.db.Exec(query, room.Id)
 	return err
 }
 
 func (p *SQLitePersist) GetRooms() ([]*types.Room, error) {
-	p.RLock()
-	defer p.RUnlock()
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	rooms := make([]*types.Room, 0)
 	query := `SELECT r.id,r.tags,r.owner_id,u.nick,u.language,u.last_online,u.tags FROM rooms AS r INNER JOIN users AS u ON r.owner_id=u.id;`
 	rows, err := p.db.Query(query)
@@ -266,8 +317,12 @@ func (p *SQLitePersist) GetRooms() ([]*types.Room, error) {
 }
 
 func (p *SQLitePersist) UpdateRoomTags(room *types.Room, updates []*types.TagUpdate) ([]bool, error) {
-	p.Lock()
-	defer p.Unlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	resOk := make([]bool, len(updates))
 	if room.Id == "" {
 		return nil, fmt.Errorf("no room id")
@@ -306,16 +361,23 @@ func (p *SQLitePersist) UpdateRoomTags(room *types.Room, updates []*types.TagUpd
 	return resOk, nil
 }
 
-func (p *SQLitePersist) StoreEvents(room *types.Room, events []*types.Event) error {
-	p.Lock()
-	defer p.Unlock()
+func (p *SQLitePersist) StoreEvents(_ *types.Room, events []*types.Event) error {
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	tx, err := p.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
 	}
 	query := `INSERT INTO events (id,room_id,user_id,plugin_name,name,language,tags,target_filter,created,sent) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING;`
 	for _, event := range events {
-		tags, err := json.Marshal(room.Tags)
+		if event.Tags == nil {
+			event.Tags = make(map[string]string)
+		}
+		tags, err := json.Marshal(event.Tags)
 		if err != nil {
 			_ = tx.Rollback()
 			return err
@@ -340,8 +402,12 @@ func (p *SQLitePersist) StoreEvents(room *types.Room, events []*types.Event) err
 }
 
 func (p *SQLitePersist) GetEventHistory(room *types.Room, fromTs, toTs time.Time, fromIdx, maxCount int) ([]*types.Event, error) {
-	p.RLock()
-	defer p.RUnlock()
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	if room == nil {
 		return nil, fmt.Errorf("no room")
 	}
@@ -400,7 +466,11 @@ WHERE e.created >= $1 AND e.created < $2 ORDER BY e.created DESC LIMIT $3 OFFSET
 }
 
 func (p *SQLitePersist) Close() error {
-	p.Lock()
-	defer p.Unlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	return p.db.Close()
 }

@@ -9,6 +9,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.0.0
 	github.com/fatih/color v1.10.0 // indirect
 	github.com/folkengine/goname v0.0.0-20170801220153-5d61685cf6f2
+	github.com/gofrs/flock v0.8.0
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.4.2
 	github.com/hashicorp/go-hclog v0.15.0
@@ -25,7 +26,7 @@ require (
 	github.com/onsi/ginkgo v1.14.2 // indirect
 	github.com/onsi/gomega v1.10.3 // indirect
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/spf13/cobra v1.1.3 // indirect
+	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.7.1
 	github.com/stretchr/testify v1.7.0

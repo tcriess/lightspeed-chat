@@ -9,6 +9,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/tcriess/lightspeed-chat/config"
 	"github.com/tcriess/lightspeed-chat/filter"
 	"github.com/tcriess/lightspeed-chat/globals"
@@ -22,6 +23,7 @@ type BuntDBPersist struct {
 	roomDbs                map[string]*buntdb.DB
 	roomDbFileNameTemplate *template.Template
 	sync.RWMutex
+	*flock.Flock
 }
 
 func NewBuntPersister(cfg *config.Config) (Persister, error) {
@@ -32,7 +34,11 @@ func NewBuntPersister(cfg *config.Config) (Persister, error) {
 	if db == nil {
 		return nil, nil // no or wrong configuration, ignore the persister
 	}
-	return &BuntDBPersist{db: db, roomDbs: roomDbs, roomDbFileNameTemplate: t}, nil
+	p := BuntDBPersist{db: db, roomDbs: roomDbs, roomDbFileNameTemplate: t}
+	if cfg.PersistenceConfig.FlockPath != "" {
+		p.Flock = flock.New(cfg.PersistenceConfig.FlockPath)
+	}
+	return &p, nil
 }
 
 func getRoomDbName(room *types.Room, t *template.Template) (string, error) {
@@ -114,6 +120,12 @@ func setupBuntDB(cfg *config.Config) (*buntdb.DB, map[string]*buntdb.DB, *templa
 }
 
 func (p *BuntDBPersist) StoreUser(user types.User) error {
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	u, err := json.Marshal(user)
 	if err != nil {
 		return err
@@ -125,6 +137,12 @@ func (p *BuntDBPersist) StoreUser(user types.User) error {
 }
 
 func (p *BuntDBPersist) GetUser(user *types.User) error {
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	if user.Id == "" {
 		return fmt.Errorf("no user id")
 	}
@@ -146,6 +164,12 @@ func (p *BuntDBPersist) GetUser(user *types.User) error {
 }
 
 func (p *BuntDBPersist) GetUsers() ([]*types.User, error) {
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	users := make([]*types.User, 0)
 	err := p.db.View(func(tx *buntdb.Tx) error {
 		tx.Descend("users", func(key, val string) bool {
@@ -165,6 +189,12 @@ func (p *BuntDBPersist) GetUsers() ([]*types.User, error) {
 }
 
 func (p *BuntDBPersist) UpdateUserTags(user *types.User, updates []*types.TagUpdate) ([]bool, error) {
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	resOk := make([]bool, len(updates))
 	if user.Id == "" {
 		return nil, fmt.Errorf("no user id")
@@ -199,6 +229,12 @@ func (p *BuntDBPersist) UpdateUserTags(user *types.User, updates []*types.TagUpd
 }
 
 func (p *BuntDBPersist) DeleteUser(user *types.User) error {
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	if user.Id == "" {
 		return fmt.Errorf("no user id")
 	}
@@ -221,8 +257,12 @@ func (p *BuntDBPersist) StoreRoom(room types.Room) error {
 		return err
 	}
 
-	p.Lock()
-	defer p.Unlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 
 	replaced := true
 	oldVal := ""
@@ -294,6 +334,12 @@ func (p *BuntDBPersist) GetRoom(room *types.Room) error {
 	if room.Id == "" {
 		return fmt.Errorf("no room id")
 	}
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	err := p.db.View(func(tx *buntdb.Tx) error {
 		u, err := tx.Get("room:" + room.Id)
 		if err != nil {
@@ -316,8 +362,12 @@ func (p *BuntDBPersist) DeleteRoom(room *types.Room) error {
 		return fmt.Errorf("no room id")
 	}
 
-	p.Lock()
-	defer p.Unlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 
 	oldVal := ""
 	err := p.db.Update(func(tx *buntdb.Tx) error {
@@ -340,6 +390,12 @@ func (p *BuntDBPersist) DeleteRoom(room *types.Room) error {
 }
 
 func (p *BuntDBPersist) GetRooms() ([]*types.Room, error) {
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	rooms := make([]*types.Room, 0)
 	err := p.db.View(func(tx *buntdb.Tx) error {
 		tx.Descend("rooms", func(key, val string) bool {
@@ -359,6 +415,12 @@ func (p *BuntDBPersist) GetRooms() ([]*types.Room, error) {
 }
 
 func (p *BuntDBPersist) UpdateRoomTags(room *types.Room, updates []*types.TagUpdate) ([]bool, error) {
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 	resOk := make([]bool, len(updates))
 	if room.Id == "" {
 		return nil, fmt.Errorf("no room id")
@@ -400,8 +462,12 @@ func (p *BuntDBPersist) StoreEvents(room *types.Room, events []*types.Event) err
 		return fmt.Errorf("no room")
 	}
 
-	p.RLock()
-	defer p.RUnlock()
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
 
 	if roomDb, ok := p.roomDbs[room.Id]; ok {
 		return roomDb.Update(func(tx *buntdb.Tx) error {
@@ -433,13 +499,16 @@ func (p *BuntDBPersist) GetEventHistory(room *types.Room, fromTs, toTs time.Time
 	if room == nil {
 		return nil, fmt.Errorf("no room")
 	}
+	p.RWMutex.RLock()
+	defer p.RWMutex.RUnlock()
+	if p.Flock != nil {
+		p.Flock.RLock()
+		defer p.Flock.Unlock()
+	}
 	events := make([]*types.Event, 0)
 
 	fromCond := fmt.Sprintf(`{"created":"%s"}`, fromTs.In(time.UTC).Format(time.RFC3339))
 	toCond := fmt.Sprintf(`{"created":"%s"}`, toTs.In(time.UTC).Format(time.RFC3339))
-
-	p.RLock()
-	defer p.RUnlock()
 
 	if roomDb, ok := p.roomDbs[room.Id]; ok {
 		err := roomDb.View(func(tx *buntdb.Tx) error {
@@ -468,6 +537,13 @@ func (p *BuntDBPersist) GetEventHistory(room *types.Room, fromTs, toTs time.Time
 }
 
 func (p *BuntDBPersist) Close() error {
+	p.RWMutex.Lock()
+	defer p.RWMutex.Unlock()
+	if p.Flock != nil {
+		p.Flock.Lock()
+		defer p.Flock.Unlock()
+	}
+
 	var err error
 	err = p.db.Close()
 	for _, roomDb := range p.roomDbs {

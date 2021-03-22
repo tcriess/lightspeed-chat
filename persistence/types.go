@@ -3,6 +3,7 @@ package persistence
 import (
 	"time"
 
+	"github.com/tcriess/lightspeed-chat/config"
 	"github.com/tcriess/lightspeed-chat/types"
 )
 
@@ -20,4 +21,18 @@ type Persister interface {
 	UpdateRoomTags(*types.Room, []*types.TagUpdate) ([]bool, error)
 	DeleteRoom(*types.Room) error
 	Close() error
+}
+
+func NewPersister(globalConfig *config.Config) (Persister, error) {
+	persister, err := NewSQLitePersister(globalConfig)
+	if err != nil {
+		return nil, err
+	}
+	if persister == nil {
+		persister, err = NewBuntPersister(globalConfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return persister, nil
 }
