@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -12,7 +14,7 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
-	"github.com/hashicorp/hcl/v2/hcldec"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/tcriess/lightspeed-chat/config"
 	"github.com/tcriess/lightspeed-chat/globals"
@@ -21,6 +23,8 @@ import (
 	"github.com/tcriess/lightspeed-chat/types"
 )
 
+// A very simple CLI tool for the administration of lightspeed-chat rooms and users.
+
 var (
 	configPath          = pflag.StringP("config", "c", "", "path to config file or directory")
 	eventHandlerPlugins = pflag.StringSliceP("plugin", "p", nil, "path(s) to event handler plugin(s)")
@@ -28,30 +32,9 @@ var (
 	globalPlugins map[string]plugins.PluginSpec = make(map[string]plugins.PluginSpec)
 )
 
-var Usage = func() {
-	fmt.Fprintf(os.Stderr, "Usage of %s:\n", filepath.Base(os.Args[0]))
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintf(os.Stderr, "  %s [-c CONFIG] [[-p PLUGIN1] [-p PLUGIN2]...] COMMAND SUBCOMMAND\n", filepath.Base(os.Args[0]))
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "Commands/subcommands:")
-	fmt.Fprintln(os.Stderr, "  show rooms")
-	fmt.Fprintln(os.Stderr, "       print the JSON room definitions of all rooms")
-	fmt.Fprintln(os.Stderr, "  show room ID")
-	fmt.Fprintln(os.Stderr, "       print the JSON room definition of the room ID")
-	fmt.Fprintln(os.Stderr, "  show users")
-	fmt.Fprintln(os.Stderr, "       print the JSON user definition of all users")
-	fmt.Fprintln(os.Stderr, "  show user ID")
-	fmt.Fprintln(os.Stderr, "       print the JSON user definition of the user ID")
-	fmt.Fprintln(os.Stderr, "  set room")
-	fmt.Fprintln(os.Stderr, "       read a JSON room definition from STDIN and update/create the room accordingly")
-	fmt.Fprintln(os.Stderr, "  set user")
-	fmt.Fprintln(os.Stderr, "       read a JSON user definition from STDIN and update/create the user accordingly")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "Options:")
-	pflag.PrintDefaults()
-}
-
 func main() {
+	log.SetFlags(0)
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
@@ -61,28 +44,19 @@ func main() {
 		log.Fatal("interrupted!")
 	}()
 
-	pflag.Usage = Usage
+	flagSet := config.GetFlagSet()
+	pflag.CommandLine.AddFlagSet(flagSet)
+
 	pflag.Parse()
 
-	if pflag.NArg() < 2 {
-		pflag.Usage()
-		return
-	}
-
-	log.SetFlags(0)
-
-	var globalConfig *config.Config
-
-	globalConfig, pluginConfigs, err := config.ReadConfiguration(*configPath)
+	globalConfig, err := config.ReadConfiguration(*configPath, flagSet)
 	if err != nil {
 		panic(err)
 	}
 
-	if globalConfig.LogLevel != nil {
-		globals.AppLogger.SetLevel(hclog.LevelFromString(*globalConfig.LogLevel))
-	}
+	globals.AppLogger.SetLevel(hclog.LevelFromString(globalConfig.LogLevel))
 
-	persister, err := persistence.NewBuntPersister(globalConfig)
+	persister, err := persistence.NewPersister(globalConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -133,34 +107,37 @@ func main() {
 			Name:   pluginName,
 			Plugin: eventHandler,
 		}
-		log.Printf("pluginName: %s", pluginName)
-		if cfg, ok := pluginConfigs[pluginName]; ok {
-			log.Printf("found config: %+v", cfg)
-			spec, err := eventHandler.GetSpec()
-			if err != nil {
-				panic(fmt.Sprintf("could not get plugin config spec: %s", err))
+		for _, pluginCfg := range globalConfig.PluginConfigs {
+			if pluginCfg.Name == pluginName {
+				globals.AppLogger.Debug("found config", "config", pluginCfg.RawPluginConfig)
+				cronSpec, eventFilter, err := eventHandler.Configure(pluginCfg.RawPluginConfig)
+				if err != nil {
+					panic(fmt.Sprintf("could not configure plugin %s: %s", pluginName, err))
+				}
+				pluginSpec.CronSpec = cronSpec
+				pluginSpec.EventFilter = eventFilter
+				break
 			}
-			log.Printf("spec: %+v", spec)
-			val, diag := hcldec.Decode(cfg, spec, nil)
-			log.Printf("val: %+v diag: %+v", val, diag)
-			log.Println(val.GoString())
-			cronSpec, eventFilter, err := eventHandler.Configure(val)
-			if err != nil {
-				panic(fmt.Sprintf("could not configure plugin %s: %s", pluginName, err))
-			}
-			log.Printf("got cronspec from plugin: %s", cronSpec)
-			log.Printf("got eventFilter from plugin: %s", eventFilter)
-			pluginSpec.CronSpec = cronSpec
-			pluginSpec.EventFilter = eventFilter
 		}
 		globalPlugins[pluginName] = pluginSpec
 	}
 	defer plugin.CleanupClients()
 
-	switch pflag.Arg(0) {
-	case "show":
-		switch pflag.Arg(1) {
-		case "rooms":
+	var cmdShow = &cobra.Command{
+		Use:   "show",
+		Short: "Show room or user",
+		Long:  `show is for printing user or room information with a given user/room id.`,
+		Args:  cobra.MinimumNArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("Show: " + strings.Join(args, " "))
+		},
+	}
+	var cmdShowRooms = &cobra.Command{
+		Use:   "rooms",
+		Short: "Show rooms",
+		Long:  `show is for listing all available rooms.`,
+		Args:  cobra.MinimumNArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
 			rooms, err := persister.GetRooms()
 			if err != nil {
 				globals.AppLogger.Error("could not get rooms", "error", err)
@@ -172,13 +149,15 @@ func main() {
 				return
 			}
 			fmt.Println(string(r))
-
-		case "room":
-			if pflag.NArg() < 3 {
-				pflag.Usage()
-				return
-			}
-			room := types.Room{Id: pflag.Arg(2)}
+		},
+	}
+	var cmdShowRoom = &cobra.Command{
+		Use:   "room [room id]",
+		Short: "Show room",
+		Long:  `show room prints detail information about the room with the given id.`,
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			room := types.Room{Id: args[0]}
 			err := persister.GetRoom(&room)
 			if err != nil {
 				globals.AppLogger.Error("could not get room", "error", err)
@@ -190,8 +169,14 @@ func main() {
 				return
 			}
 			fmt.Println(string(r))
-
-		case "users":
+		},
+	}
+	var cmdShowUsers = &cobra.Command{
+		Use:   "users",
+		Short: "Show users",
+		Long:  `shows a listing of all available users.`,
+		Args:  cobra.MinimumNArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
 			users, err := persister.GetUsers()
 			if err != nil {
 				globals.AppLogger.Error("could not get users", "error", err)
@@ -203,13 +188,15 @@ func main() {
 				return
 			}
 			fmt.Println(string(u))
-
-		case "user":
-			if pflag.NArg() < 3 {
-				pflag.Usage()
-				return
-			}
-			user := types.User{Id: pflag.Arg(2)}
+		},
+	}
+	var cmdShowUser = &cobra.Command{
+		Use:   "user [user id]",
+		Short: "Show user",
+		Long:  `show user prints detail information about the user with the given id.`,
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			user := types.User{Id: args[0]}
 			err := persister.GetUser(&user)
 			if err != nil {
 				globals.AppLogger.Error("could not get user", "error", err)
@@ -221,35 +208,67 @@ func main() {
 				return
 			}
 			fmt.Println(string(u))
-		}
-
-	case "delete":
-		if pflag.NArg() < 3 {
-			pflag.Usage()
-			return
-		}
-		switch pflag.Arg(1) {
-		case "room":
+		},
+	}
+	var cmdDelete = &cobra.Command{
+		Use:   "delete",
+		Short: "delete room or user",
+		Long:  `delete removes the user or room with a given user/room id.`,
+		Args:  cobra.MinimumNArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("Delete: " + strings.Join(args, " "))
+		},
+	}
+	var cmdDeleteRoom = &cobra.Command{
+		Use:   "room [room id]",
+		Short: "Delete room",
+		Long:  `delete room removes the room with the given id.`,
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
 			room := types.Room{Id: pflag.Arg(2)}
 			err := persister.DeleteRoom(&room)
 			if err != nil {
 				globals.AppLogger.Error("could not delete room", "error", err)
 				return
 			}
-
-		case "user":
+		},
+	}
+	var cmdDeleteUser = &cobra.Command{
+		Use:   "user [user id]",
+		Short: "Delete user",
+		Long:  `delete user removes the user with the given id.`,
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
 			user := types.User{Id: pflag.Arg(2)}
 			err := persister.DeleteUser(&user)
 			if err != nil {
 				globals.AppLogger.Error("could not delete user", "error", err)
 				return
 			}
-		}
-
-	case "set":
-		dec := json.NewDecoder(os.Stdin)
-		switch pflag.Arg(1) {
-		case "room":
+		},
+	}
+	var cmdSet = &cobra.Command{
+		Use:   "set",
+		Short: "create/update room or user",
+		Long:  `set creates or updates a room or user.`,
+		Args:  cobra.MinimumNArgs(0),
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("Set: " + strings.Join(args, " "))
+		},
+	}
+	var cmdSetRoom = &cobra.Command{
+		Use:   "room [room definition]",
+		Short: "Set room",
+		Long:  `set room creates or updates a room. If the room definition is "-", the definition is read from STDIN.`,
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			var r io.Reader
+			if args[0] == "-" {
+				r = os.Stdin
+			} else {
+				r = bytes.NewReader([]byte(args[0]))
+			}
+			dec := json.NewDecoder(r)
 			room := types.Room{}
 			err := dec.Decode(&room)
 			if err != nil {
@@ -261,7 +280,8 @@ func main() {
 				globals.AppLogger.Error("no room id")
 				return
 			}
-			err = persister.GetRoom(&room)
+			oldRoom := types.Room{Id: room.Id}
+			err = persister.GetRoom(&oldRoom)
 			if err != nil {
 				globals.AppLogger.Info("room does not exist, creating")
 			}
@@ -284,9 +304,21 @@ func main() {
 				globals.AppLogger.Error("could not store room", "error", err)
 				return
 			}
-
-		case "user":
-			// expect a json representation of a types.User in stdin
+		},
+	}
+	var cmdSetUser = &cobra.Command{
+		Use:   "user [user definition]",
+		Short: "Set user",
+		Long:  `set user creates or updates a user with the given definition. If the user definition is "-", it is read from STDIN.`,
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			var r io.Reader
+			if args[0] == "-" {
+				r = os.Stdin
+			} else {
+				r = bytes.NewReader([]byte(args[0]))
+			}
+			dec := json.NewDecoder(r)
 			user := types.User{}
 			err := dec.Decode(&user)
 			if err != nil {
@@ -298,16 +330,19 @@ func main() {
 				globals.AppLogger.Error("no user id")
 				return
 			}
-			err = persister.GetUser(&user)
-			if err != nil {
-				globals.AppLogger.Info("user does not exist, creating")
-			}
 			err = persister.StoreUser(user)
 			if err != nil {
 				globals.AppLogger.Error("could not store user", "error", err)
 				return
 			}
-
-		}
+		},
 	}
+	var rootCmd = &cobra.Command{Use: "lightspeed-chat-admin"}
+	rootCmd.AddCommand(cmdShow)
+	rootCmd.AddCommand(cmdDelete)
+	rootCmd.AddCommand(cmdSet)
+	cmdShow.AddCommand(cmdShowRooms, cmdShowRoom, cmdShowUsers, cmdShowUser)
+	cmdDelete.AddCommand(cmdDeleteRoom, cmdDeleteUser)
+	cmdSet.AddCommand(cmdSetRoom, cmdSetUser)
+	rootCmd.Execute()
 }
