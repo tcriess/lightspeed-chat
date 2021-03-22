@@ -5,9 +5,15 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/tcriess/lightspeed-chat/globals"
+)
+
+const (
+	defaultAdminUser = "admin"
 )
 
 // Config is the global configuration object which is filled via the configuration file
@@ -18,6 +24,7 @@ type Config struct {
 	PersistenceConfig PersistenceConfig `mapstructure:"persistence"`
 	PluginConfigs     []PluginConfig    `mapstructure:"plugin"`
 	LogLevel          string            `mapstructure:"log_level"`
+	AdminUser         string            `mapstructure:"admin_user"`
 }
 
 // HistoryConfig configures the size of the immediate event history that is kept in memory in a ring buffer and
@@ -45,8 +52,9 @@ type SQLiteConfig struct {
 }
 
 // PersistenceConfig configures the persistence backends. Currently only BuntDB via BuntDBConfig and SQLite via
-// SQLiteConfig are supported.
+// SQLiteConfig are supported. If more than one persister is defined, sqlite > buntdb.
 type PersistenceConfig struct {
+	FlockPath    string       `mapstructure:"flock_path"`
 	BuntDBConfig BuntDBConfig `mapstructure:"buntdb"`
 	SQLiteConfig SQLiteConfig `mapstructure:"sqlite"`
 }
@@ -54,15 +62,37 @@ type PersistenceConfig struct {
 // Each named PluginConfig block configures a plugin. The raw configuration RawPluginConfig is passed on to the plugin which
 // parses its own configuration.
 type PluginConfig struct {
-	Name string `hcl:"name,label" mapstructure:"name"`
+	Name            string                 `mapstructure:"name"`
 	RawPluginConfig map[string]interface{} `mapstructure:",remain"`
+}
+
+func GetFlagSet() *pflag.FlagSet {
+	flagSet := pflag.NewFlagSet("configuration", pflag.ContinueOnError)
+	flagSet.StringP("admin-user", "a", "", "id of the admin user")
+	return flagSet
+}
+
+// wordSepNormalizeFunc allows for normalization of the flag names (which use - as a separator)
+func wordSepNormalizeFunc(f *pflag.FlagSet, name string) pflag.NormalizedName {
+	from := "-"
+	to := "_"
+	name = strings.Replace(name, from, to, -1)
+	return pflag.NormalizedName(name)
 }
 
 // ReadConfiguration reads and parses the configuration located at configPath, which can either point to a single TOML
 // file or to a directory, in which case all *.toml files in this directory are concatenated. It returns a Config
 // object.
-func ReadConfiguration(configPath string) (*Config, error) {
+func ReadConfiguration(configPath string, flagSet *pflag.FlagSet) (*Config, error) {
 	cfg := Config{}
+	flagSet.SetNormalizeFunc(wordSepNormalizeFunc)
+	viper.SetDefault("admin_user", defaultAdminUser)
+	err := viper.BindPFlags(flagSet)
+	if err != nil {
+		globals.AppLogger.Error("could not bind flags (ignored)", "error", err)
+	}
+	viper.SetEnvPrefix("LSCHAT")
+	viper.AutomaticEnv()
 	if configPath != "" {
 		fi, err := os.Stat(configPath)
 		if err != nil {
@@ -91,7 +121,7 @@ func ReadConfiguration(configPath string) (*Config, error) {
 			globals.AppLogger.Error("could not read config:", "error", err)
 		}
 	}
-	err := viper.Unmarshal(&cfg)
+	err = viper.Unmarshal(&cfg)
 	if err != nil {
 		globals.AppLogger.Error("could not unmarshal config:", "error", err)
 	}

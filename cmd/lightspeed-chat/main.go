@@ -45,6 +45,8 @@ var (
 )
 
 func main() {
+	log.SetFlags(0)
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
@@ -54,18 +56,19 @@ func main() {
 		log.Fatal("interrupted!")
 	}()
 
-	pflag.Parse()
-	log.SetFlags(0)
+	flagSet := config.GetFlagSet()
+	pflag.CommandLine.AddFlagSet(flagSet)
 
-	globalConfig, err := config.ReadConfiguration(*configPath)
+	pflag.Parse()
+
+	globalConfig, err := config.ReadConfiguration(*configPath, flagSet)
 	if err != nil {
 		panic(err)
 	}
 
 	globals.AppLogger.SetLevel(hclog.LevelFromString(globalConfig.LogLevel))
 
-	persister, err := persistence.NewSQLitePersister(globalConfig)
-	//persister, err := persistence.NewBuntPersister(globalConfig)
+	persister, err := persistence.NewPersister(globalConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -145,12 +148,12 @@ func main() {
 		}
 		globals.AppLogger.Debug("all rooms", "rooms", rooms)
 		if len(rooms) == 0 {
-			adminUser := types.User{Id: "admin"}
+			adminUser := types.User{Id: globalConfig.AdminUser}
 			err := persister.GetUser(&adminUser)
 			if err == sql.ErrNoRows {
 				adminUser.Tags = make(map[string]string)
 				adminUser.Language = "en"
-				adminUser.Nick = "admin"
+				adminUser.Nick = globalConfig.AdminUser
 				err := persister.StoreUser(adminUser)
 				if err != nil {
 					panic(err)
@@ -175,7 +178,7 @@ func main() {
 	} else {
 		room := &types.Room{
 			Id:    "default",
-			Owner: &types.User{},
+			Owner: &types.User{Id: globalConfig.AdminUser},
 			Tags:  make(map[string]string),
 		}
 		rooms = []*types.Room{room}
@@ -234,8 +237,12 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	if idToken := vals.Get("id_token"); idToken != "" {
 		globals.AppLogger.Debug("token", "idtoken", idToken)
 		if provider := vals.Get("provider"); provider != "" {
+			var err error
 			globals.AppLogger.Debug("found oidc provider", "provider", provider)
-			userId, _ = auth.Authenticate(idToken, provider, hub.Cfg)
+			userId, err = auth.Authenticate(idToken, provider, hub.Cfg)
+			if err != nil {
+				globals.AppLogger.Error("could not authenticate", "error", err)
+			}
 		}
 	}
 	language := vals.Get("language")
@@ -248,7 +255,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// When this frame returns close the Websocket
-	defer conn.Close() //nolint
+	defer conn.Close()
 
 	doneChan := make(chan struct{})
 
