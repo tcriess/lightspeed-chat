@@ -3,7 +3,6 @@ package ws
 import (
 	"encoding/json"
 	"fmt"
-	"html"
 	"log"
 	"strconv"
 	"strings"
@@ -102,6 +101,23 @@ func (c *Client) ReadLoop() {
 			}
 			return
 		}
+		if c.user.Id == "" {
+			filter := fmt.Sprintf(`Target.User.Nick == %s`, strconv.Quote(c.user.Nick))
+			tags := make(map[string]string)
+			tags["message"] = "Please log in to post a message!"
+			source := &types.Source{
+				User: c.user,
+			}
+			event := types.NewEvent(c.hub.Room, source, filter, "en", types.EventTypeChat, tags)
+			events := []*types.Event{event}
+			c.hub.RLock()
+			if _, ok := c.hub.clients[c]; ok {
+				c.SendEvents <- events
+				c.PluginChan <- events
+			}
+			c.hub.RUnlock()
+			continue
+		}
 
 		err = json.Unmarshal(raw, &message)
 		if err != nil {
@@ -129,7 +145,7 @@ func (c *Client) ReadLoop() {
 				User: c.user,
 			}
 			tags := map[string]string{
-				"message":   html.EscapeString(chatMsg.Message),
+				"message":   chatMsg.Message,
 				"mime_type": "text/plain",
 			}
 			if !strings.HasPrefix(chatMsg.Message, "/") {

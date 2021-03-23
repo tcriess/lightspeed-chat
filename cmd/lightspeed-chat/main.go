@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -164,10 +165,12 @@ func main() {
 				}
 			}
 			// no room in the db, create a default room
+			tags := make(map[string]string)
+			tags["_allow_guests"] = "true"
 			room := &types.Room{
 				Id:    "default",
 				Owner: &adminUser,
-				Tags:  make(map[string]string),
+				Tags:  tags,
 			}
 			err = persister.StoreRoom(*room)
 			if err != nil {
@@ -176,10 +179,12 @@ func main() {
 			rooms = []*types.Room{room}
 		}
 	} else {
+		tags := make(map[string]string)
+		tags["_allow_guests"] = "true"
 		room := &types.Room{
 			Id:    "default",
-			Owner: &types.User{Id: globalConfig.AdminUser},
-			Tags:  make(map[string]string),
+			Owner: &types.User{Id: globalConfig.AdminUser, Nick: globalConfig.AdminUser, Language: "en", Tags: make(map[string]string)},
+			Tags:  tags,
 		}
 		rooms = []*types.Room{room}
 	}
@@ -262,7 +267,11 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	nick := userId
 	if nick == "" {
 		nick = goname.New(goname.FantasyMap).FirstLast() + " (guest)"
-		userId = nick
+		if ag, ok := hub.Room.Tags["_allow_guests"]; ok {
+			if allowGuests, err := strconv.ParseBool(ag); err == nil && allowGuests {
+				userId = nick
+			}
+		}
 	}
 	user := types.User{
 		Id:         userId,

@@ -76,6 +76,7 @@ language TEXT DEFAULT "en" NOT NULL,
 tags TEXT DEFAULT "{}" NOT NULL,
 target_filter TEXT DEFAULT "" NOT NULL,
 created INTEGER DEFAULT 0 NOT NULL,
+created_sort INTEGER DEFAULT 0 NOT NULL,
 sent INTEGER DEFAULT 0 NOT NULL,
 FOREIGN KEY (room_id) REFERENCES rooms (id) ON DELETE CASCADE ON UPDATE CASCADE,
 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
@@ -84,7 +85,7 @@ FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
 	if err != nil {
 		return nil, err
 	}
-	query = `CREATE INDEX IF NOT EXISTS events_created_idx ON events (created);`
+	query = `CREATE INDEX IF NOT EXISTS events_created_idx ON events (created, created_sort);`
 	_, err = db.Exec(query)
 	if err != nil {
 		return nil, err
@@ -106,8 +107,8 @@ func (p *SQLitePersist) StoreUser(user types.User) error {
 	if err != nil {
 		return err
 	}
-	query := `INSERT INTO users (id,nick,language,last_online,tags) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET nick=EXCLUDED.nick,language=EXCLUDED.language,last_online=EXCLUDED.last_online,tags=EXCLUDED.tags;`
-	_, err = p.db.Exec(query, user.Id, user.Nick, user.Language, user.LastOnline.Unix(), string(tags))
+	query := `INSERT INTO users (id,nick,language,last_online,tags) VALUES (?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET nick=EXCLUDED.nick,language=EXCLUDED.language,last_online=EXCLUDED.last_online,tags=EXCLUDED.tags;`
+	_, err = p.db.Exec(query, user.Id, user.Nick, user.Language, user.LastOnline.Unix(), tags)
 	return err
 }
 
@@ -120,7 +121,7 @@ func (p *SQLitePersist) GetUser(user *types.User) error {
 	}
 	var lastOnline int64
 	var tagsRaw string
-	query := `SELECT nick,language,last_online,tags FROM users WHERE id=$1;`
+	query := `SELECT nick,language,last_online,tags FROM users WHERE id=?;`
 	err := p.db.QueryRow(query, user.Id).Scan(&user.Nick, &user.Language, &lastOnline, &tagsRaw)
 	if err != nil {
 		return err
@@ -170,14 +171,15 @@ func (p *SQLitePersist) UpdateUserTags(user *types.User, updates []*types.TagUpd
 		p.Flock.Lock()
 		defer p.Flock.Unlock()
 	}
+	ctx := context.Background()
 	resOk := make([]bool, len(updates))
-	tx, err := p.db.BeginTx(context.Background(), nil)
+	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	var tagsRaw string
-	query := `SELECT tags FROM users WHERE id=$1;`
-	err = tx.QueryRow(query, user.Id).Scan(&tagsRaw)
+	query := `SELECT tags FROM users WHERE id=?;`
+	err = tx.QueryRowContext(ctx, query, user.Id).Scan(&tagsRaw)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -190,8 +192,8 @@ func (p *SQLitePersist) UpdateUserTags(user *types.User, updates []*types.TagUpd
 		tx.Rollback()
 		return nil, err
 	}
-	query = `UPDATE users SET tags=$2 WHERE id=$1;`
-	_, err = tx.Exec(query, user.Id, string(tagsRawBytes))
+	query = `UPDATE users SET tags=? WHERE id=?;`
+	_, err = tx.ExecContext(ctx, query, tagsRawBytes, user.Id)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -212,7 +214,7 @@ func (p *SQLitePersist) DeleteUser(user *types.User) error {
 		p.Flock.Lock()
 		defer p.Flock.Unlock()
 	}
-	query := `DELETE FROM users WHERE id=$1;`
+	query := `DELETE FROM users WHERE id=?;`
 	_, err := p.db.Exec(query, user.Id)
 	return err
 }
@@ -231,8 +233,8 @@ func (p *SQLitePersist) StoreRoom(room types.Room) error {
 	if err != nil {
 		return err
 	}
-	query := `INSERT INTO rooms (id,owner_id,tags) VALUES ($1,$2,$3) ON CONFLICT (id) DO UPDATE SET owner_id=EXCLUDED.owner_id, tags=EXCLUDED.tags;`
-	_, err = p.db.Exec(query, room.Id, room.Owner.Id, string(tags))
+	query := `INSERT INTO rooms (id,owner_id,tags) VALUES (?,?,?) ON CONFLICT (id) DO UPDATE SET owner_id=EXCLUDED.owner_id, tags=EXCLUDED.tags;`
+	_, err = p.db.Exec(query, room.Id, room.Owner.Id, tags)
 	return err
 }
 
@@ -246,7 +248,7 @@ func (p *SQLitePersist) GetRoom(room *types.Room) error {
 	user := types.User{}
 	var lastOnline int64
 	var roomTagsRaw, userTagsRaw string
-	query := `SELECT r.tags,r.owner_id,u.nick,u.language,u.last_online,u.tags FROM rooms AS r INNER JOIN users AS u ON r.owner_id=u.id WHERE r.id=$1;`
+	query := `SELECT r.tags,r.owner_id,u.nick,u.language,u.last_online,u.tags FROM rooms AS r INNER JOIN users AS u ON r.owner_id=u.id WHERE r.id=?;`
 	err := p.db.QueryRow(query, room.Id).Scan(&roomTagsRaw, &user.Id, &user.Nick, &user.Language, &lastOnline, &userTagsRaw)
 	if err != nil {
 		return err
@@ -269,7 +271,7 @@ func (p *SQLitePersist) DeleteRoom(room *types.Room) error {
 		p.Flock.Lock()
 		defer p.Flock.Unlock()
 	}
-	query := `DELETE FROM rooms WHERE id=$1;`
+	query := `DELETE FROM rooms WHERE id=?;`
 	_, err := p.db.Exec(query, room.Id)
 	return err
 }
@@ -332,7 +334,7 @@ func (p *SQLitePersist) UpdateRoomTags(room *types.Room, updates []*types.TagUpd
 		return nil, err
 	}
 	var tagsRaw string
-	query := `SELECT tags FROM rooms WHERE id=$1;`
+	query := `SELECT tags FROM rooms WHERE id=?;`
 	err = tx.QueryRow(query, room.Id).Scan(&tagsRaw)
 	if err != nil {
 		tx.Rollback()
@@ -346,8 +348,8 @@ func (p *SQLitePersist) UpdateRoomTags(room *types.Room, updates []*types.TagUpd
 		tx.Rollback()
 		return nil, err
 	}
-	query = `UPDATE rooms SET tags=$2 WHERE id=$1;`
-	_, err = tx.Exec(query, room.Id, string(tagsRawBytes))
+	query = `UPDATE rooms SET tags=? WHERE id=?;`
+	_, err = tx.Exec(query, tagsRawBytes, room.Id)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -372,7 +374,7 @@ func (p *SQLitePersist) StoreEvents(_ *types.Room, events []*types.Event) error 
 	if err != nil {
 		return err
 	}
-	query := `INSERT INTO events (id,room_id,user_id,plugin_name,name,language,tags,target_filter,created,sent) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING;`
+	query := `INSERT INTO events (id,room_id,user_id,plugin_name,name,language,tags,target_filter,created,created_sort,sent) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING;`
 	for _, event := range events {
 		if event.Tags == nil {
 			event.Tags = make(map[string]string)
@@ -387,7 +389,8 @@ func (p *SQLitePersist) StoreEvents(_ *types.Room, events []*types.Event) error 
 			uid.Valid = true
 			uid.String = event.Source.User.Id
 		}
-		_, err = tx.Exec(query, event.Id, event.Room.Id, uid, event.Source.PluginName, event.Name, event.Language, tags, event.TargetFilter, event.Created.Unix(), event.Sent.Unix())
+		sort := event.Created.Nanosecond()
+		_, err = tx.Exec(query, event.Id, event.Room.Id, uid, event.Source.PluginName, event.Name, event.Language, tags, event.TargetFilter, event.Created.Unix(), sort, event.Sent.Unix())
 		if err != nil {
 			_ = tx.Rollback()
 			return err
@@ -417,8 +420,8 @@ func (p *SQLitePersist) GetEventHistory(room *types.Room, fromTs, toTs time.Time
 	query := `SELECT e.id,e.room_id,e.user_id,e.plugin_name,e.name,e.language,e.tags,e.target_filter,e.created,e.sent,r.owner_id,r.tags,
        u.nick,u.language,u.last_online,u.tags,o.nick,o.language,o.last_online,o.tags
 FROM events AS e INNER JOIN (rooms AS r INNER JOIN users AS o ON o.id=r.owner_id) ON r.id=e.room_id LEFT JOIN users AS u ON u.id=e.user_id
-WHERE e.created >= $1 AND e.created < $2 ORDER BY e.created DESC LIMIT $3 OFFSET $4;`
-	rows, err := p.db.Query(query, from, to, maxCount, fromIdx)
+WHERE r.id=? AND e.created >= ? AND e.created < ? ORDER BY e.created, e.created_sort DESC LIMIT ? OFFSET ?;`
+	rows, err := p.db.Query(query, room.Id, from, to, maxCount, fromIdx)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
@@ -452,6 +455,9 @@ WHERE e.created >= $1 AND e.created < $2 ORDER BY e.created DESC LIMIT $3 OFFSET
 		roomTags := make(map[string]string)
 		_ = json.Unmarshal([]byte(rawRoomTags), &roomTags)
 		newRoom.Tags = roomTags
+		eventTags := make(map[string]string)
+		_ = json.Unmarshal([]byte(rawEventTags), &eventTags)
+		event.Tags = eventTags
 		sourceUser.LastOnline = time.Unix(sourceUserLastOnline.Int64, 0)
 		owner.LastOnline = time.Unix(ownerLastOnline, 0)
 		newRoom.Owner = &owner
