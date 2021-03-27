@@ -7,15 +7,16 @@ this ecosystem. The objective is to have a simple yet fully functional chat syst
 
 - Authentication: currently guests and authenticated users are supported, authentication is only supported via an Open
   ID Connect provider
-- Persistence: messages and translations are persisted on the file system using BuntDB, other persistence backends may
+- Persistence: messages and translations are persisted on the file system using BuntDB or SQLite, other persistence backends may
   be supported in the future
 - Built-in translation support: dynamic message translations are fully supported by the chat server, a plugin may provide the
   actual translation text
 - Plugins: Hashicorps' [go-plugin](https://github.com/hashicorp/go-plugin) is used to provide a generic plugin interface. Plugins can process incoming messages
-  and emit messages and/or translations based on those, or they can emit messages regularly. A translation plugin using
-  the Google translate API is part of this repository (separate configuration and setup of a Google Cloud Platform
+  and emit messages and/or translations based on those, or they can emit messages regularly.
+  Two plugins are part of this repository: "Base commands" for basic commands and a translation plugin using
+  the Google translate API (separate configuration and setup of a Google Cloud Platform
   project is required)
-- Configuration: Hashicorps' [HCL](https://github.com/hashicorp/hcl) is used as the configuration file language
+- Configuration: [viper](https://github.com/spf13/viper) is used for reading configuration files in TOML format
 
 # Roadmap
 
@@ -37,7 +38,10 @@ In order to try the chat, actually only the frontend is required.
 *Note*: Building and running has only been tested on Linux platforms using Go v1.16.
 So: YMMV.
 
-Run `build-binaries-prod.sh` in the main directory. Alternatively:
+Run `build-binaries-prod.sh` in the main directory (note that due to the SQLite dependency, the resulting binary may not run on every glibc version).
+It is also possible to use the vagrant docker image (Ubuntu 20.04) for building via `build-binaries-prod-vagrant.sh`, so the executables run on Ubuntu 20.04.
+
+Alternatively:
 
 ```shell
 cd cmd/lightspeed-chat
@@ -62,6 +66,8 @@ Execute `go build .` in the directory where the source code of the plugin is loc
 ```shell
 cd plugins/lightspeed-chat-google-translate-plugin
 go build .
+cd ../lightspeed-chat-base-commands-plugin
+go build .
 ```
 
 # Install
@@ -84,6 +90,7 @@ location:
 ```shell
 mkdir -p ~/.config/lightspeed-chat/plugins
 cp plugins/lightspeed-chat-google-translate-plugin/lightspeed-chat-google-translate-plugin ~/.config/lightspeed-chat/plugins
+cp plugins/lightspeed-chat-base-commands-plugin/lightspeed-chat-base-commands-plugin ~/.config/lightspeed-chat/plugins
 ```
 
 ## Frontend
@@ -115,29 +122,29 @@ where `CONFIGURATION` points to either a single configuration file or a director
 
 ## Chat server
 
-```hcl
-oidc "google" {
-  client_id = ""
-  provider_url = "https://accounts.google.com"
-}
+```toml
+[[oidc]]
+name = "google"
+client_id = "YOUR-CLIENT-ID"
+provider_url = "https://accounts.google.com"
 
-history {
-  history_size = 1000
-}
+[history]
+history_size = 1000
 
-persistence {
-  buntdb {
-    global_name = "default.buntdb"
-    room_name_template = "room_{{ .RoomId }}.buntdb"
-  }
-}
+[persistence]
+  [persistence.buntdb]
+  global_name = "default.buntdb"
+  room_name_template = "room_{{ .RoomId }}.buntdb"
+
+  [persistence.sqlite]
+  dsn = "file:global.db?_fk=true"
 ```
 
 ### Authentication
 
 Optionally, lightspeed-chat can use an Open ID Connect provider to authenticate a user.
 OIDC providers are configured in `oidc`-blocks, the required attributes are `client_id` and `provider_url`.
-Note that currently the claim `email` is required and used as the user id and nick.
+Note that currently the claim `preferred_username` is required and used as the user id and nick.
 This may change in the future.
 
 ### History
@@ -147,10 +154,16 @@ Note that one translation for each configured language is generated per chat mes
 
 ### Persistence
 
-As a persistence backend, currently only [BuntDB](https://github.com/tidwall/buntdb) is supported.
+As a persistence backend, currently [BuntDB](https://github.com/tidwall/buntdb) and
+[SQLite](https://github.com/mattn/go-sqlite3) are supported.
+
 BuntDB is an in-memory key/value store persisting the contents to (almost) plain-text files.
 The block to configure persistence backends is called `persistence`, the sub-block `buntdb` requires the attribute `global_name` defining the file name (relative to the working directory or absolute path)
 of the global database (containing users and rooms), and the attribute `room_name_template` for a file name template of the individual room databases (text/template, where `{{.RoomId}}` can be used as a placeholder for the room id).
+
+SQLite is a file-based SQL database, the only required configuration parameters is the DSN connection string.
+
+Note that if both SQLite and BuntDB are configured, SQLite is used. Potentially, BuntDB support will be removed in the future.
 
 ## Plugins
 
@@ -158,18 +171,16 @@ Lightspeed-chat ships with a plugin which provides google-translate translations
 In order to use it in a live system, you need to register a google cloud project, activate access to the google translate API and set up an OAuth2.0 client id for web applications.
 Make sure to include the correct redirect URL(s) for your system (for local testing, this can be something like `http://localhost:3000`).
 
-```hcl
-plugin "google-translate" {
-  config {
-    project_id = "YOURPROJECTID"
-    languages = [
-      "de-DE",
-      "es-ES",
-      "en-US"]
-    cron_spec = "@every 60m"
-    cache_size = 10000
-  }
-}
+```toml
+[[plugin]]
+name = "google-translate"
+project_id = "YOUR-PROJECT-ID"
+languages = [
+  "de-DE",
+  "es-ES",
+  "en-US"]
+cron_spec = "@every 60m"
+cache_size = 10000
 ```
 
 Plugins are configured in a `plugin`-block labelled with the name of the plugin.
@@ -205,7 +216,7 @@ Without plugins, single configuration file:
 With the google translate plugin, multiple configuration files in a directory:
 
 ```shell
-./cmd/lightspeed-chat/lightspeed-chat -p plugins/lightspeed-chat-google-translate-plugin/lightspeed-chat-google-translate-plugin -c config
+./cmd/lightspeed-chat/lightspeed-chat -p plugins/lightspeed-chat-google-translate-plugin/lightspeed-chat-google-translate-plugin -p plugins/lightspeed-chat-base-commands-plugin/lightspeed-chat-base-commands-plugin -c config
 ```
 
 For (limited) administration of users and rooms, `lightspeed-chat-admin` is provided.
