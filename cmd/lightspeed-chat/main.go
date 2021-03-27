@@ -325,26 +325,28 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	go c.ReadLoop()
 	go c.WriteLoop()
 
-	source := &types.Source{
-		User:       &user,
-		PluginName: "main",
-	}
-
-	tags := map[string]string{
-		"action": "login",
-	}
-	userEvent := types.NewEvent(hub.Room, source, "", "", types.EventTypeUser, tags)
-
 	wg := &sync.WaitGroup{}
-	wg.Add(3)
-	go func(evt *types.Event, wg *sync.WaitGroup) {
-		defer wg.Done()
-		hub.BroadcastEvents <- []*types.Event{evt}
-	}(userEvent, wg)
-	go func(evt *types.Event, wg *sync.WaitGroup) {
-		defer wg.Done()
-		c.PluginChan <- []*types.Event{evt}
-	}(userEvent, wg)
+	if user.Id != "" {
+		wg.Add(2)
+		source := &types.Source{
+			User:       &user,
+			PluginName: "main",
+		}
+
+		tags := map[string]string{
+			"action": "login",
+		}
+		userEvent := types.NewEvent(hub.Room, source, "", "", types.EventTypeUser, tags)
+		go func(evt *types.Event, wg *sync.WaitGroup) {
+			defer wg.Done()
+			hub.BroadcastEvents <- []*types.Event{evt}
+		}(userEvent, wg)
+		go func(evt *types.Event, wg *sync.WaitGroup) {
+			defer wg.Done()
+			c.PluginChan <- []*types.Event{evt}
+		}(userEvent, wg)
+	}
+	wg.Add(1)
 	go c.SendHistory(hub.GetHistory(), wg)
 	// make sure those 3 are done before closing the send channel
 	globals.AppLogger.Debug("wait for client wg chan")

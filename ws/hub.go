@@ -3,7 +3,7 @@ package ws
 import (
 	"container/ring"
 	"encoding/json"
-	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -108,7 +108,7 @@ func NewHub(room *types.Room, cfg *config.Config, persister persistence.Persiste
 			for {
 				err := plg.Plugin.InitEmitEvents(hub.Room, &eeh) // never exits
 				if err != nil {
-					log.Printf("error: could not init emit events for plugin %s", pluginName)
+					globals.AppLogger.Error("could not init emit events for plugin", "pluginName", pluginName)
 					<-time.After(time.Second)
 				}
 			}
@@ -119,20 +119,16 @@ func NewHub(room *types.Room, cfg *config.Config, persister persistence.Persiste
 
 // NoClients returns the number of clients registered
 func (h *Hub) NoClients() int {
-	log.Println("info: in NoClients")
 	h.RLock()
 	defer h.RUnlock()
 	return len(h.clients)
 }
 
 func (h *Hub) handlePlugins(events []*types.Event, skipPlugins map[string]struct{}) error {
-	log.Printf("in handlePlugins, skipPlugins=%+v", skipPlugins)
-
 	for pluginName, plg := range h.pluginMap {
 		if _, ok := skipPlugins[pluginName]; ok {
 			continue
 		}
-		log.Printf("calling plugin: %s", pluginName)
 		passEvents := make([]*types.Event, 0)
 		for _, event := range events {
 			if plg.EventFilter != "" {
@@ -148,7 +144,7 @@ func (h *Hub) handlePlugins(events []*types.Event, skipPlugins map[string]struct
 		}
 		resEvents, err := plg.Plugin.HandleEvents(passEvents)
 		if err != nil {
-			log.Printf("error: could not call plugin to handle message: %s", err)
+			globals.AppLogger.Error("could not call plugin to handle message", "error", err)
 			continue
 		}
 		newSkipPlugins := make(map[string]struct{})
@@ -158,13 +154,13 @@ func (h *Hub) handlePlugins(events []*types.Event, skipPlugins map[string]struct
 		newSkipPlugins[pluginName] = struct{}{}
 		err = h.handlePlugins(resEvents, newSkipPlugins)
 		if err != nil {
-			log.Printf("error: could not handle plugins: %s", err)
+			globals.AppLogger.Error("could not handle plugins", "error", err)
 			continue
 		}
 		globals.AppLogger.Info("plugin handled", "plugin", pluginName, "resEvents", resEvents)
 		err = h.handleEvents(resEvents)
 		if err != nil {
-			log.Printf("error: could not handle events: %s", err)
+			globals.AppLogger.Error("could not handle events", "error", err)
 			continue
 		}
 	}
@@ -189,19 +185,19 @@ func (h *Hub) Run() {
 				entryId, err := cronRunner.AddFunc(plg.CronSpec, func() {
 					events, err := plg.Plugin.Cron(h.Room)
 					if err != nil {
-						log.Printf("error calling cron: %s", err)
+						globals.AppLogger.Error("error calling cron", "error", err)
 						return
 					}
 					skipPlugins := make(map[string]struct{})
 					skipPlugins[pluginName] = struct{}{}
 					err = h.handlePlugins(events, skipPlugins)
 					if err != nil {
-						log.Printf("error handling plugins: %s", err)
+						globals.AppLogger.Error("error handling plugins", "error", err)
 						return
 					}
 					err = h.handleEvents(events)
 					if err != nil {
-						log.Printf("error handling events: %s", err)
+						globals.AppLogger.Error("error handling events", "error", err)
 						return
 					}
 					//cronFunc(h, pluginName)
@@ -216,10 +212,8 @@ func (h *Hub) Run() {
 	defer cronRunner.Stop()
 	cronRunner.Start()
 	for {
-		log.Println("info: start hub run loop")
 		select {
 		case client := <-h.Register:
-			log.Println("info: register new client")
 			h.Lock()
 			h.clients[client] = struct{}{}
 			h.Unlock()
@@ -231,16 +225,13 @@ func (h *Hub) Run() {
 				h.RLock()
 				if _, ok := h.clients[client]; ok {
 					h.RUnlock()
-					log.Println("info: unregister client")
+					globals.AppLogger.Info("unregister client")
 
 					h.Lock()
 					delete(h.clients, client)
 					h.Unlock()
-					log.Println("close connection (probably already is closed, just to make sure)")
 					client.conn.Close()
-					log.Println("wait for all loops and write operations to be finished")
 					client.Wait()
-					log.Println("close send channel")
 					// here we have two options, both have their drawbacks:
 					// - have some locking mechanism in place to avoid writing to a closed channel, because
 					//   the Send channel is used at several places in multiple goroutines (use hub.RLock!)
@@ -263,9 +254,7 @@ func (h *Hub) Run() {
 					// close the channel and hope there is no more write to it
 					close(client.Send)
 					close(client.SendEvents)
-					log.Println("close plugin channel")
 					close(client.PluginChan)
-					log.Println("broadcast new room info")
 					go h.SendInfo(h.GetInfo()) // this way the number of clients does not change between calling the goroutine and executing it
 				} else {
 					h.RUnlock()
@@ -282,7 +271,7 @@ func (h *Hub) Run() {
 					var err error
 					prog, err = expr.Compile(event.TargetFilter, expr.Env(filter.Env{}))
 					if err != nil {
-						log.Printf("error: could not compile filter: %s", err)
+						globals.AppLogger.Error("could not compile filter", "error", err)
 					}
 				}
 				globals.AppLogger.Debug("checking event", "event", event)
@@ -306,9 +295,10 @@ func (h *Hub) Run() {
 							}(client, data)
 						}
 					}
-					log.Println("info: wait for broadcast to finish")
+					globals.AppLogger.Debug("wait for broadcast to finish")
 					wg.Wait()
 					h.RUnlock()
+					globals.AppLogger.Debug("broadcast finished")
 				}(events[i], prog)
 			}
 
@@ -349,15 +339,19 @@ func (h *Hub) GetHistory() []*types.Event {
 }
 
 func (h *Hub) GetInfo() *types.Event {
-	log.Println("info: in GetInfo")
 	tags := make(map[string]string)
 	h.RLock()
+	nicks := make([]string, len(h.clients))
+	i := 0
 	for c := range h.clients {
-		tags[c.user.Id] = c.user.Nick
+		nicks[i] = c.user.Nick
+		i++
 	}
 	h.RUnlock()
+	tags["nicks"] = strings.Join(nicks, ",")
 	source := &types.Source{
 		PluginName: "main",
+		User:       &types.User{Id: "", Nick: "main", Tags: make(map[string]string)},
 	}
 	return types.NewEvent(h.Room, source, "", "", types.EventTypeInfo, tags)
 }

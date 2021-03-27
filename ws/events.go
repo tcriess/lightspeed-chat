@@ -1,8 +1,8 @@
 package ws
 
 import (
-	"github.com/hashicorp/go-hclog"
 	"github.com/tcriess/lightspeed-chat/auth"
+	"github.com/tcriess/lightspeed-chat/globals"
 	"github.com/tcriess/lightspeed-chat/types"
 )
 
@@ -13,7 +13,6 @@ type emitEventsHelper struct {
 
 // Here, we receive the events that were emitted by the plugins
 func (eh *emitEventsHelper) EmitEvents(events []*types.Event) error {
-	hclog.Default().Info("in main->emitEvents", "events", events)
 	keepEvents := events[:0]
 	for _, event := range events {
 		if event.Name == types.EventTypeInternal {
@@ -31,12 +30,12 @@ func (eh *emitEventsHelper) EmitEvents(events []*types.Event) error {
 	skipPlugins[eh.pluginName] = struct{}{}
 	err := eh.hub.handlePlugins(keepEvents, skipPlugins)
 	if err != nil {
-		hclog.Default().Error("could not handle events", "error", err)
+		globals.AppLogger.Error("could not handle events", "error", err)
 		return err
 	}
 	err = eh.hub.handleEvents(keepEvents)
 	if err != nil {
-		hclog.Default().Error("could not handle events", "error", err)
+		globals.AppLogger.Error("could not handle events", "error", err)
 		return err
 	}
 	return nil

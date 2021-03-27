@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"text/template"
 	"time"
@@ -173,7 +172,6 @@ func (p *BuntDBPersist) GetUsers() ([]*types.User, error) {
 	users := make([]*types.User, 0)
 	err := p.db.View(func(tx *buntdb.Tx) error {
 		tx.Descend("users", func(key, val string) bool {
-			log.Printf("got user: %s %s", key, val)
 			user := &types.User{}
 			if err := json.Unmarshal([]byte(val), user); err == nil {
 				users = append(users, user)
@@ -216,7 +214,7 @@ func (p *BuntDBPersist) UpdateUserTags(user *types.User, updates []*types.TagUpd
 		if err != nil {
 			return err
 		}
-		_, _, err = tx.Set("user:" + user.Id, string(newUser), nil)
+		_, _, err = tx.Set("user:"+user.Id, string(newUser), nil)
 		if err != nil {
 			return err
 		}
@@ -399,7 +397,6 @@ func (p *BuntDBPersist) GetRooms() ([]*types.Room, error) {
 	rooms := make([]*types.Room, 0)
 	err := p.db.View(func(tx *buntdb.Tx) error {
 		tx.Descend("rooms", func(key, val string) bool {
-			log.Printf("got room: %s %s", key, val)
 			room := &types.Room{}
 			if err := json.Unmarshal([]byte(val), room); err == nil {
 				rooms = append(rooms, room)
@@ -442,7 +439,7 @@ func (p *BuntDBPersist) UpdateRoomTags(room *types.Room, updates []*types.TagUpd
 		if err != nil {
 			return err
 		}
-		_, _, err = tx.Set("room:" + room.Id, string(newRoom), nil)
+		_, _, err = tx.Set("room:"+room.Id, string(newRoom), nil)
 		if err != nil {
 			return err
 		}
@@ -495,7 +492,6 @@ func (p *BuntDBPersist) StoreEvents(room *types.Room, events []*types.Event) err
 // Use fromTs/toTs to restrict the time range, and fromIdx/maxCount for pagination.
 // Important: the resulting events are expected to have the "History" flag set!
 func (p *BuntDBPersist) GetEventHistory(room *types.Room, fromTs, toTs time.Time, fromIdx, maxCount int) ([]*types.Event, error) {
-	log.Println("info: in GetEventHistory")
 	if room == nil {
 		return nil, fmt.Errorf("no room")
 	}
@@ -514,9 +510,7 @@ func (p *BuntDBPersist) GetEventHistory(room *types.Room, fromTs, toTs time.Time
 		err := roomDb.View(func(tx *buntdb.Tx) error {
 			currentNo := -1
 			count := 0
-			log.Printf("from: %s, to: %s", fromTs.In(time.UTC).Format(time.RFC3339), toTs.In(time.UTC).Format(time.RFC3339))
 			return tx.DescendRange("eventsts", toCond, fromCond, func(key, val string) bool {
-				log.Printf("got chat history entry: %s %s", key, val)
 				currentNo++
 				if currentNo < fromIdx {
 					return true

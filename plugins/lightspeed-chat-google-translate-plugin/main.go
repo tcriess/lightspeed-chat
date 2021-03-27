@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"time"
@@ -224,12 +225,12 @@ func translation(srcText []string, language string) ([]string, error) {
 	}
 	for i, t := range resp.Translations {
 		if t.DetectedLanguageCode[:2] != language[:2] {
-			translations[toTranslateIdx[i]] = t.TranslatedText
+			translations[toTranslateIdx[i]] = html.UnescapeString(t.TranslatedText)
 			k := cacheKey{
 				TargetLanguage: language,
 				Text:           srcText[toTranslateIdx[i]],
 			}
-			cache.Add(k, t.TranslatedText)
+			cache.Add(k, html.UnescapeString(t.TranslatedText))
 		}
 	}
 	appLogger.Debug("translated", "translations", translations)

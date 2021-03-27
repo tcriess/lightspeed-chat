@@ -220,6 +220,7 @@ tbd
 - [ ] unit tests
 - [ ] extend the admin cli tool
 - [ ] migrate fully to [hclog](https://github.com/hashicorp/go-hclog)
-- [ ] maybe use [viper](https://github.com/spf13/viper) for configuration
+- [x] use [viper](https://github.com/spf13/viper) for configuration
+- [x] use [cobra](https://github.com/spf13/cobra) for cli command 
 - [ ] support stickers / message types other than text
 - [ ] support external databases for persistence

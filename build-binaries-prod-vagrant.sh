@@ -8,5 +8,5 @@ go mod vendor
 
 for bin in "${BINARIES[@]}"; do
     echo "Building $bin"
-    (cd "./${bin}/" && go build .)
+    vagrant docker-exec -- bash -c "cd /vagrant/${bin}/ && go build ."
 done

@@ -24,10 +24,12 @@ pkged.go
 /cmd/lightspeed-chat/lightspeed-chat
 /cmd/lightspeed-chat-admin/lightspeed-chat-admin
 /plugins/lightspeed-chat-google-translate-plugin/lightspeed-chat-google-translate-plugin
+/plugins/lightspeed-chat-base-commands-plugin/lightspeed-chat-base-commands-plugin
 
 # plugins
 /plugins/lightspeed-chat-*-plugin
 !/plugins/lightspeed-chat-google-translate-plugin
+!/plugins/lightspeed-chat-base-commands-plugin
 
 # room db files
 *.buntdb
@@ -40,4 +42,5 @@ pkged.go
 /config/live
 # temp
 /tmp
-
+# vagrant
+/.vagrant

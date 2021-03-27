@@ -1,8 +1,6 @@
 package ws
 
 import (
-	"log"
-
 	"github.com/antonmedv/expr"
 	"github.com/antonmedv/expr/vm"
 	"github.com/tcriess/lightspeed-chat/filter"
@@ -17,7 +15,7 @@ func (c *Client) EvaluateFilterEvent(event *types.Event) bool {
 	globals.AppLogger.Debug("creating filter program for", "event", event)
 	prog, err := expr.Compile(event.TargetFilter, expr.Env(filter.Env{}))
 	if err != nil {
-		log.Printf("error: could not compile filter: %s", err)
+		globals.AppLogger.Error("could not compile filter", "error", err)
 		return false
 	}
 	return c.RunFilterEvent(event, prog)
@@ -94,7 +92,7 @@ func (h *Hub) EvaluatePluginFilterEvent(event *types.Event, pluginFilter string)
 	}
 	prog, err := expr.Compile(pluginFilter, expr.Env(filter.Env{}))
 	if err != nil {
-		log.Printf("error: could not compile filter: %s", err)
+		globals.AppLogger.Error("could not compile filter", "error", err)
 		return false
 	}
 	return h.RunPluginFilterEvent(event, prog)
@@ -146,7 +144,7 @@ func (h *Hub) RunPluginFilterEvent(event *types.Event, prog *vm.Program) bool {
 
 	res, err := expr.Run(prog, env)
 	if err != nil {
-		log.Printf("error: could not run filter: %s", err)
+		globals.AppLogger.Error("could not run filter", "error", err)
 		return false
 	}
 	if bRes, ok := res.(bool); ok {

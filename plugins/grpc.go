@@ -3,7 +3,6 @@ package plugins
 import (
 	"bytes"
 	"encoding/json"
-	"log"
 	"sync"
 	"time"
 
@@ -141,10 +140,8 @@ func (c *GRPCClient) HandleEvents(inEvents []*types.Event) ([]*types.Event, erro
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("in GRPC handleEvents: %+v", resp.Events)
 	outEvents := make([]*types.Event, len(resp.Events))
 	for i, event := range resp.Events {
-		log.Printf("in GRPC handleEvents: %+v", *event)
 		outEvents[i] = eventProto2Native(event)
 	}
 	return outEvents, nil

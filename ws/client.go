@@ -1,18 +1,21 @@
 package ws
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/folkengine/goname"
 	"github.com/gorilla/websocket"
 	"github.com/mitchellh/mapstructure"
+	"github.com/tcriess/lightspeed-chat/auth"
 	"github.com/tcriess/lightspeed-chat/globals"
 	"github.com/tcriess/lightspeed-chat/types"
+	"github.com/tidwall/buntdb"
 )
 
 const (
@@ -65,7 +68,6 @@ func NewClient(hub *Hub, conn *websocket.Conn, user *types.User, language string
 }
 
 func (c *Client) SendHistory(events []*types.Event, wg *sync.WaitGroup) {
-	log.Println("info: in SendHistory")
 	if wg != nil {
 		defer wg.Done()
 	}
@@ -82,7 +84,6 @@ func (c *Client) SendHistory(events []*types.Event, wg *sync.WaitGroup) {
 // ensures that there is at most one reader on a connection by executing all
 // reads from this goroutine.
 func (c *Client) ReadLoop() {
-	log.Println("info: in ReadLoop")
 	defer func() {
 		c.conn.Close()
 		close(c.doneChan)
@@ -95,12 +96,95 @@ func (c *Client) ReadLoop() {
 	for {
 		_, raw, err := c.conn.ReadMessage()
 		if err != nil {
-			log.Printf("could not read message: %s", err)
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Println("ws closed unexpected")
+				globals.AppLogger.Info("ws closed unexpected")
 			}
 			return
 		}
+		err = json.Unmarshal(raw, &message)
+		if err != nil {
+			globals.AppLogger.Error("could not unmarshal ws message", "error", err)
+			return
+		}
+
+		if message.Event == types.WireMessageTypeLogout && c.user.Id != "" {
+			var userId string
+			nick := goname.New(goname.FantasyMap).FirstLast() + " (guest)"
+			if ag, ok := c.hub.Room.Tags["_allow_guests"]; ok {
+				if allowGuests, err := strconv.ParseBool(ag); err == nil && allowGuests {
+					userId = nick
+				}
+			}
+			user := types.User{
+				Id:         userId,
+				Nick:       nick,
+				Language:   c.Language,
+				Tags:       make(map[string]string),
+				LastOnline: time.Time{},
+			}
+			c.user = &user
+		}
+		if message.Event == types.WireMessageTypeLogin {
+			var sendHistory bool
+			var userId string
+			loginMsgMap := make(map[string]interface{})
+			err = json.Unmarshal(message.Data, &loginMsgMap)
+			if err != nil {
+				globals.AppLogger.Error("could not unmarshal login message", "error", err)
+				return
+			}
+			loginMsg := types.LoginMessage{}
+			err = mapstructure.WeakDecode(loginMsgMap, &loginMsg)
+			if err != nil {
+				globals.AppLogger.Error("could not decode login message", "error", err)
+				return
+			}
+			if loginMsg.IdToken != "" && loginMsg.Provider != "" {
+				var err error
+				userId, err = auth.Authenticate(loginMsg.IdToken, loginMsg.Provider, c.hub.Cfg)
+				if err != nil {
+					globals.AppLogger.Error("could not authenticate", "error", err)
+				}
+				if userId != "" {
+					sendHistory = true
+					newUser := types.User{Id: userId}
+					if c.hub.Persister != nil {
+						err := c.hub.Persister.GetUser(&newUser)
+						if err == buntdb.ErrNotFound || err == sql.ErrNoRows {
+							newUser.Nick = newUser.Id
+							newUser.Language = "en"
+							newUser.LastOnline = time.Now()
+							err := c.hub.Persister.StoreUser(newUser)
+							if err != nil {
+								globals.AppLogger.Error("could not store user", "error", err)
+								return
+							}
+						} else {
+							if err != nil {
+								globals.AppLogger.Error("could not get user", "error", err)
+								return
+							}
+						}
+					} else {
+						newUser.Nick = newUser.Id
+						newUser.Language = "en"
+						newUser.LastOnline = time.Now()
+					}
+					c.user = &newUser
+					if newUser.Language != "" {
+						c.Language = newUser.Language
+					}
+				}
+			}
+			if len(loginMsg.Language) > 1 && c.user.Id != "" {
+				c.Language = strings.ToLower(loginMsg.Language[:2])
+				sendHistory = true
+			}
+			if sendHistory {
+				go c.SendHistory(c.hub.GetHistory(), nil)
+			}
+		}
+
 		if c.user.Id == "" {
 			filter := fmt.Sprintf(`Target.User.Nick == %s`, strconv.Quote(c.user.Nick))
 			tags := make(map[string]string)
@@ -119,24 +203,18 @@ func (c *Client) ReadLoop() {
 			continue
 		}
 
-		err = json.Unmarshal(raw, &message)
-		if err != nil {
-			log.Printf("could not unmarshal ws message: %s", err)
-			return
-		}
-
 		switch message.Event {
 		case types.WireMessageTypeChat:
 			chatMsgMap := make(map[string]interface{})
 			err = json.Unmarshal(message.Data, &chatMsgMap)
 			if err != nil {
-				log.Printf("error: could not unmarshal chat message: %s", err)
+				globals.AppLogger.Error("could not unmarshal chat message", "error", err)
 				return
 			}
 			chatMsg := types.ChatMessage{}
 			err = mapstructure.WeakDecode(chatMsgMap, &chatMsg)
 			if err != nil {
-				log.Printf("error: could not decode chat message: %s", err)
+				globals.AppLogger.Error("could not decode chat message", "error", err)
 				return
 			}
 			chatMsg.Timestamp = time.Now()
@@ -159,6 +237,7 @@ func (c *Client) ReadLoop() {
 				}
 				c.hub.RUnlock()
 			} else {
+				tags["original_target_filter"] = chatMsg.Filter
 				// set the filter to send commands only to the original sender
 				filter := ""
 				if chatMsg.Filter != "" {
@@ -188,7 +267,7 @@ func (c *Client) ReadLoop() {
 			msgMap := make(map[string]interface{})
 			err = json.Unmarshal(message.Data, &msgMap)
 			if err != nil {
-				log.Printf("error: could not unmarshal message: %s", err)
+				globals.AppLogger.Error("could not unmarshal message", "error", err)
 				return
 			}
 			msg := struct {
@@ -198,7 +277,7 @@ func (c *Client) ReadLoop() {
 			}{}
 			err = mapstructure.WeakDecode(msgMap, &msg)
 			if err != nil {
-				log.Printf("error: could not decode message: %s", err)
+				globals.AppLogger.Error("could not decode message", "error", err)
 				return
 			}
 			source := &types.Source{
@@ -230,7 +309,7 @@ func (c *Client) ReadLoop() {
 // application ensures that there is at most one writer to a connection by
 // executing all writes from this goroutine.
 func (c *Client) WriteLoop() {
-	log.Println("info: in WriteLoop")
+	globals.AppLogger.Info("info: in WriteLoop")
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
@@ -240,7 +319,7 @@ func (c *Client) WriteLoop() {
 	for {
 		select {
 		case <-c.doneChan:
-			log.Println("info: doneChan closed, exiting plugin loop")
+			globals.AppLogger.Info("doneChan closed, exiting plugin loop")
 			return
 		default:
 		}
@@ -249,7 +328,7 @@ func (c *Client) WriteLoop() {
 			if !ok {
 				// The hub closed the channel.
 				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				log.Println("info: Send event channel closed, exiting write loop")
+				globals.AppLogger.Info("Send event channel closed, exiting write loop")
 				return
 			}
 
@@ -294,18 +373,18 @@ func (c *Client) WriteLoop() {
 			if !ok {
 				// The hub closed the channel.
 				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				log.Println("info: Send channel closed, exiting write loop")
+				globals.AppLogger.Info("send channel closed, exiting write loop")
 				return
 			}
 
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
-				log.Println("info could not write to ws connection, exiting write loop")
+				globals.AppLogger.Info("could not write to ws connection, exiting write loop")
 				return
 			}
 			_, err = w.Write(message)
 			if err != nil {
-				log.Printf("error: could not send message: %s", err)
+				globals.AppLogger.Error("could not send message", "error", err)
 				w.Close()
 				return
 			}
@@ -317,12 +396,12 @@ func (c *Client) WriteLoop() {
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("info: could not send ping message, exiting write loop")
+				globals.AppLogger.Info("could not send ping message, exiting write loop")
 				return
 			}
 
 		case <-c.doneChan:
-			log.Println("info: doneChan closed, exiting write loop")
+			globals.AppLogger.Info("info: doneChan closed, exiting write loop")
 			return
 		}
 	}
@@ -333,7 +412,7 @@ func (c *Client) PluginLoop() {
 	for {
 		select {
 		case <-c.doneChan:
-			log.Println("info: doneChan closed, exiting plugin loop")
+			globals.AppLogger.Info("doneChan closed, exiting plugin loop")
 			return
 
 		default:
@@ -341,18 +420,18 @@ func (c *Client) PluginLoop() {
 		select {
 		case events, ok := <-c.PluginChan:
 			if !ok {
-				log.Println("info: PluginChan closed, exiting client plugin loop")
+				globals.AppLogger.Info("PluginChan closed, exiting client plugin loop")
 				return
 			}
 			skipPlugins := make(map[string]struct{})
 			err := c.hub.handlePlugins(events, skipPlugins)
 			if err != nil {
-				log.Printf("error: %s", err)
+				globals.AppLogger.Error("could not handle plugins", "error", err)
 				continue
 			}
 
 		case <-c.doneChan:
-			log.Println("info: doneChan closed, exiting plugin loop")
+			globals.AppLogger.Info("doneChan closed, exiting plugin loop")
 			return
 		}
 	}
