@@ -51,12 +51,20 @@ type SQLiteConfig struct {
 	DSN string `mapstructure:"dsn"`
 }
 
+type PostgresConfig struct {
+	DSN string `mapstructure:"dsn"`
+}
+
 // PersistenceConfig configures the persistence backends. Currently only BuntDB via BuntDBConfig and SQLite via
 // SQLiteConfig are supported. If more than one persister is defined, sqlite > buntdb.
 type PersistenceConfig struct {
-	FlockPath    string       `mapstructure:"flock_path"`
-	BuntDBConfig BuntDBConfig `mapstructure:"buntdb"`
-	SQLiteConfig SQLiteConfig `mapstructure:"sqlite"`
+	Type string `mapstructure:"type"`
+	DSN  string `mapstructure:"dsn"`
+
+	FlockPath      string         `mapstructure:"flock_path"` // deprecated
+	BuntDBConfig   BuntDBConfig   `mapstructure:"buntdb"`     // deprecated
+	SQLiteConfig   SQLiteConfig   `mapstructure:"sqlite"`     // deprecated
+	PostgresConfig PostgresConfig `mapstructure:"postgres"`   // deprecated
 }
 
 // Each named PluginConfig block configures a plugin. The raw configuration RawPluginConfig is passed on to the plugin which

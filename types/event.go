@@ -26,11 +26,11 @@ type Event struct {
 	Id       string `json:"id" hash:"ignore"`
 	*Room    `json:"room"`
 	*Source  `json:"source"`
-	Created  time.Time         `json:"created"`
-	Language string            `json:"language"`
-	Name     string            `json:"name"`
-	Tags     map[string]string `json:"tags"`
-	History  bool              `json:"history"` // set to true is this event is sent from history
+	Created  time.Time     `json:"created" gorm:"autoCreateTime"`
+	Language string        `json:"language"`
+	Name     string        `json:"name"`
+	Tags     JSONStringMap `json:"tags"`
+	History  bool          `json:"history" gorm:"-"` // set to true is this event is sent from history
 
 	// the following fields are not part of the filter.Env!
 	Sent         time.Time `json:"sent" hash:"ignore"`

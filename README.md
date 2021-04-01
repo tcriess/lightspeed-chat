@@ -230,6 +230,7 @@ tbd
 
 - [ ] unit tests
 - [ ] extend the admin cli tool
+- [ ] use ORM [gorm](https://gorm.io) for persistence
 - [ ] migrate fully to [hclog](https://github.com/hashicorp/go-hclog)
 - [x] use [viper](https://github.com/spf13/viper) for configuration
 - [x] use [cobra](https://github.com/spf13/cobra) for cli command 
