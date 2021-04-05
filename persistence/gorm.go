@@ -3,6 +3,8 @@ package persistence
 import (
 	"database/sql/driver"
 	"fmt"
+	"github.com/tcriess/lightspeed-chat/filter"
+	"gorm.io/gorm/clause"
 	"time"
 
 	"github.com/tcriess/lightspeed-chat/config"
@@ -51,11 +53,12 @@ func setupGormDB(cfg *config.Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.Migrator().AutoMigrate(&types.User{}, &types.Room{}, &types.Event{})
 	return db, nil
 }
 
 func (p *GormPersist) StoreUser(user types.User) error {
-	return p.db.Create(&user).Error
+	return p.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&user).Error
 }
 
 func (p *GormPersist) GetUser(user *types.User) error {
@@ -70,6 +73,18 @@ func (p *GormPersist) GetUsers() ([]*types.User, error) {
 
 func (p *GormPersist) UpdateUserTags(user *types.User, updates []*types.TagUpdate) ([]bool, error) {
 	res := make([]bool, len(updates))
+	err := p.db.Transaction(func(tx *gorm.DB) error {
+		err := tx.First(user).Error
+		if err != nil {
+			return err
+		}
+		tags := user.Tags
+		res = filter.UpdateTags(tags, updates)
+		return tx.Model(user).Update("tags", tags).Error
+	})
+	if err != nil {
+		return nil, err
+	}
 	return res, nil
 }
 
@@ -78,7 +93,7 @@ func (p *GormPersist) DeleteUser(user *types.User) error {
 }
 
 func (p *GormPersist) StoreRoom(room types.Room) error {
-	return p.db.Create(&room).Error
+	return p.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&room).Error
 }
 
 func (p *GormPersist) GetRoom(room *types.Room) error {
@@ -97,6 +112,18 @@ func (p *GormPersist) GetRooms() ([]*types.Room, error) {
 
 func (p *GormPersist) UpdateRoomTags(room *types.Room, updates []*types.TagUpdate) ([]bool, error) {
 	res := make([]bool, len(updates))
+	err := p.db.Transaction(func(tx *gorm.DB) error {
+		err := tx.First(room).Error
+		if err != nil {
+			return err
+		}
+		tags := room.Tags
+		res = filter.UpdateTags(tags, updates)
+		return tx.Model(room).Update("tags", tags).Error
+	})
+	if err != nil {
+		return nil, err
+	}
 	return res, nil
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"gorm.io/gorm"
 	"log"
 	"net/http"
 	"os"
@@ -151,7 +152,7 @@ func main() {
 		if len(rooms) == 0 {
 			adminUser := types.User{Id: globalConfig.AdminUser}
 			err := persister.GetUser(&adminUser)
-			if err == sql.ErrNoRows {
+			if err == gorm.ErrRecordNotFound || err == sql.ErrNoRows || err == buntdb.ErrNotFound {
 				adminUser.Tags = make(map[string]string)
 				adminUser.Language = "en"
 				adminUser.Nick = globalConfig.AdminUser
@@ -282,7 +283,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if userId != "" && hub.Persister != nil {
 		err = hub.Persister.GetUser(&user)
-		if err == buntdb.ErrNotFound || err == sql.ErrNoRows {
+		if err == gorm.ErrRecordNotFound || err == buntdb.ErrNotFound || err == sql.ErrNoRows {
 			user.Language = "en"
 			user.LastOnline = time.Now()
 			err := hub.Persister.StoreUser(user)

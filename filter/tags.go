@@ -55,7 +55,7 @@ func AsStringSlice(v string) []string {
 // as "Tags", the helper functions for type conversion of the entries are listed above).
 // UpdateTags is supposed to be called from within the persister transactions in persister.UpdateUserTags and
 // persister.UpdateRoomTags
-func UpdateTags(tags map[string]string, updates []*types.TagUpdate) []bool {
+func UpdateTags(tags types.JSONStringMap, updates []*types.TagUpdate) []bool {
 	resOk := make([]bool, len(updates))
 	if tags == nil {
 		return resOk

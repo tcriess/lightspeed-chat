@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"gorm.io/gorm"
 	"strconv"
 	"strings"
 	"sync"
@@ -150,7 +151,7 @@ func (c *Client) ReadLoop() {
 					newUser := types.User{Id: userId}
 					if c.hub.Persister != nil {
 						err := c.hub.Persister.GetUser(&newUser)
-						if err == buntdb.ErrNotFound || err == sql.ErrNoRows {
+						if err == gorm.ErrRecordNotFound || err == buntdb.ErrNotFound || err == sql.ErrNoRows {
 							newUser.Nick = newUser.Id
 							newUser.Language = "en"
 							newUser.LastOnline = time.Now()

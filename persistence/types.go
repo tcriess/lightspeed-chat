@@ -24,14 +24,20 @@ type Persister interface {
 }
 
 func NewPersister(globalConfig *config.Config) (Persister, error) {
-	persister, err := NewSQLitePersister(globalConfig)
+	persister, err := NewGormPersister(globalConfig)
 	if err != nil {
 		return nil, err
 	}
 	if persister == nil {
-		persister, err = NewBuntPersister(globalConfig)
+		persister, err = NewSQLitePersister(globalConfig)
 		if err != nil {
 			return nil, err
+		}
+		if persister == nil {
+			persister, err = NewBuntPersister(globalConfig)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	return persister, nil

@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"gorm.io/gorm"
 	"time"
 
 	"github.com/mitchellh/hashstructure/v2"
@@ -18,15 +19,17 @@ const (
 )
 
 type Source struct {
-	*User      `json:"user"`
+	UserId     string `json:"-"`
+	User       *User  `json:"user"`
 	PluginName string `json:"plugin_name"`
 }
 
 type Event struct {
-	Id       string `json:"id" hash:"ignore"`
-	*Room    `json:"room"`
-	*Source  `json:"source"`
-	Created  time.Time     `json:"created" gorm:"autoCreateTime"`
+	Id       string `json:"id" hash:"ignore" gorm:"primaryKey"`
+	RoomId   string `json:"-"`
+	Room     *Room  `json:"room"`
+	*Source  `json:"source" gorm:"embeddedPrefix:source_"`
+	Created  time.Time     `json:"created" gorm:"autoCreateTime;index"`
 	Language string        `json:"language"`
 	Name     string        `json:"name"`
 	Tags     JSONStringMap `json:"tags"`
@@ -35,6 +38,9 @@ type Event struct {
 	// the following fields are not part of the filter.Env!
 	Sent         time.Time `json:"sent" hash:"ignore"`
 	TargetFilter string    `json:"target_filter"`
+
+	UpdatedAt time.Time      `json:"-"`
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 // NewEvent creates a new event with the given parameters.
