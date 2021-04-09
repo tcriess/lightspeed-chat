@@ -3,14 +3,14 @@ package persistence
 import (
 	"database/sql/driver"
 	"fmt"
+	"time"
+
 	"github.com/tcriess/lightspeed-chat/filter"
 	"gorm.io/gorm/clause"
-	"time"
 
 	"github.com/tcriess/lightspeed-chat/config"
 	"github.com/tcriess/lightspeed-chat/types"
 	"gorm.io/datatypes"
-	_ "gorm.io/datatypes"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
