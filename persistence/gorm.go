@@ -74,7 +74,7 @@ func (p *GormPersist) GetUsers() ([]*types.User, error) {
 func (p *GormPersist) UpdateUserTags(user *types.User, updates []*types.TagUpdate) ([]bool, error) {
 	res := make([]bool, len(updates))
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		err := tx.First(user).Error
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(user).Error
 		if err != nil {
 			return err
 		}
@@ -113,7 +113,7 @@ func (p *GormPersist) GetRooms() ([]*types.Room, error) {
 func (p *GormPersist) UpdateRoomTags(room *types.Room, updates []*types.TagUpdate) ([]bool, error) {
 	res := make([]bool, len(updates))
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		err := tx.First(room).Error
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(room).Error
 		if err != nil {
 			return err
 		}
