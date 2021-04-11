@@ -17,9 +17,11 @@ const (
 	baseCommandsNick     = "baseCommandsBot"
 	baseCommandsText     = "baseCommandsBot active"
 	baseCommandsHelpText = `### Base commands plugin ###
- -> /to <nick> <message> - send private message to <nick>`
+ -> /to <nick> <message> - send private message to <nick>
+ -> /fg <color> <message> - use <color> as text color`
 	helpCommand              = "/help"
 	toCommand                = "/to"
+	fgCommand                = "/fg"
 	baseCommandsTextLanguage = "en-US"
 	pluginName               = "base-commands"
 )
@@ -87,9 +89,9 @@ func handleToCommand(inEvent *types.Event) ([]*types.Event, error) {
 		mimeType = mt
 	}
 	source := &types.Source{
-			User:       inEvent.User,
-			PluginName: pluginName,
-		}
+		User:       inEvent.User,
+		PluginName: pluginName,
+	}
 	tags := make(map[string]string)
 	tags["message"] = message
 	tags["mime_type"] = mimeType
@@ -98,13 +100,63 @@ func handleToCommand(inEvent *types.Event) ([]*types.Event, error) {
 	return events, nil
 }
 
+func handleFgCommand(inEvent *types.Event) ([]*types.Event, error) {
+	if inEvent.Name != types.EventTypeCommand {
+		return nil, nil
+	}
+	if cmd, ok := inEvent.Tags["command"]; !ok || cmd != fgCommand {
+		return nil, nil
+	}
+	var args string
+	var ok bool
+	if args, ok = inEvent.Tags["args"]; !ok || args == "" {
+		return nil, nil
+	}
+	fields := strings.Fields(args)
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	fgColor := fields[0]
+	var message string
+	if message, ok = inEvent.Tags["message"]; !ok || !strings.HasPrefix(message, fgCommand) || len(message) < len(fgCommand)+1 {
+		return nil, nil
+	}
+	message = strings.TrimSpace(message[len(fgCommand):])
+	fields = strings.Fields(message)
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	if len(message) < len(fields[0]) {
+		return nil, nil
+	}
+	message = strings.TrimSpace(message[len(fields[0]):])
+	if len(message) == 0 {
+		return nil, nil
+	}
+	mimeType := "text/plain"
+	if mt, ok := inEvent.Tags["mime_type"]; ok {
+		mimeType = mt
+	}
+	source := &types.Source{
+		User:       inEvent.User,
+		PluginName: pluginName,
+	}
+	tags := make(map[string]string)
+	tags["message"] = message
+	tags["mime_type"] = mimeType
+	tags["fg_color"] = fgColor
+	event := types.NewEvent(inEvent.Room, source, inEvent.TargetFilter, inEvent.Language, types.EventTypeChat, tags)
+	events := []*types.Event{event}
+	return events, nil
+}
+
 func handleHelpCommand(inEvent *types.Event) ([]*types.Event, error) {
 	source := &types.Source{
-			User:       inEvent.User,
-			PluginName: pluginName,
-		}
+		User:       inEvent.User,
+		PluginName: pluginName,
+	}
 	tags := map[string]string{
-		"message": baseCommandsHelpText,
+		"message":   baseCommandsHelpText,
 		"mime_type": "text/plain",
 	}
 	outEvent := types.NewEvent(inEvent.Room, source, fmt.Sprintf(`Target.User.Id == %s`, strconv.Quote(inEvent.Source.User.Id)), baseCommandsTextLanguage, types.EventTypeChat, tags)
@@ -117,6 +169,7 @@ type cmdHandlerFunc func(*types.Event) ([]*types.Event, error)
 var (
 	commands = map[string]cmdHandlerFunc{
 		toCommand:   handleToCommand,
+		fgCommand:   handleFgCommand,
 		helpCommand: handleHelpCommand,
 	}
 )
@@ -164,6 +217,7 @@ func (m *EventHandler) Configure(val map[string]interface{}) (string, string, er
 	quotedCommands := []string{
 		strconv.Quote(helpCommand),
 		strconv.Quote(toCommand),
+		strconv.Quote(fgCommand),
 	}
 	eventFilter := fmt.Sprintf(`Name=="command" && (Tags["command"] in [%s])`, strings.Join(quotedCommands, ","))
 	return pluginConfig.CronSpec, eventFilter, nil
