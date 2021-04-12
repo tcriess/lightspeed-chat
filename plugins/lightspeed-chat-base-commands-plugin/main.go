@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"plugin"
 	"strconv"
 	"strings"
 	"time"
@@ -145,7 +146,7 @@ func handleFgCommand(inEvent *types.Event) ([]*types.Event, error) {
 	tags["message"] = message
 	tags["mime_type"] = mimeType
 	tags["fg_color"] = fgColor
-	event := types.NewEvent(inEvent.Room, source, inEvent.TargetFilter, inEvent.Language, types.EventTypeChat, tags)
+	event := types.NewEvent(inEvent.Room, source, "", inEvent.Language, types.EventTypeChat, tags)
 	events := []*types.Event{event}
 	return events, nil
 }
