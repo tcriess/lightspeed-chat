@@ -53,7 +53,10 @@ func setupGormDB(cfg *config.Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.Migrator().AutoMigrate(&types.User{}, &types.Room{}, &types.Event{})
+	err = db.Migrator().AutoMigrate(&types.User{}, &types.Room{}, &types.Event{})
+	if err != nil {
+		return nil, err
+	}
 	return db, nil
 }
 
@@ -136,6 +139,9 @@ func (p *GormPersist) GetEventHistory(room *types.Room, fromTs, toTs time.Time, 
 	err := p.db.Where("created BETWEEN ? AND ?", fromTs, toTs).Order("created DESC").Limit(maxCount).Offset(fromIdx).Find(&events).Error
 	if err != nil {
 		return nil, err
+	}
+	for _, event := range events {
+		event.History = true
 	}
 	return events, nil
 }
